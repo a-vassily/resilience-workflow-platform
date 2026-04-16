@@ -1,0 +1,7 @@
+[
+  {
+    "id": "rb-001",
+    "service": "portfolio-api",
+    "excerpt": "Validate whether retries from a degraded dependency are amplifying service instability before escalating."
+  }
+]

@@ -1,0 +1,22 @@
+{
+  "timestamp": "2026-04-15T09:22:00Z",
+  "webhookEvent": "jira:issue_updated",
+  "issue": {
+    "key": "OPS-481",
+    "fields": {
+      "project": {
+        "key": "portfolio-api"
+      },
+      "priority": {
+        "name": "High"
+      },
+      "status": {
+        "name": "Open"
+      },
+      "issuetype": {
+        "name": "Incident"
+      },
+      "customfield_service": "portfolio-api"
+    }
+  }
+}

@@ -1,0 +1,7 @@
+[
+  {
+    "incident_id": "inc-2025-00491",
+    "service": "portfolio-api",
+    "summary": "Dependency degradation caused elevated API error rates and delayed processing."
+  }
+]

@@ -1,0 +1,14 @@
+[
+  {
+    "service_name": "portfolio-api",
+    "critical_service": true,
+    "owner": "application_support_team",
+    "vendor_name": "market-data-gateway"
+  },
+  {
+    "service_name": "iam-core",
+    "critical_service": true,
+    "owner": "identity_team",
+    "vendor_name": null
+  }
+]

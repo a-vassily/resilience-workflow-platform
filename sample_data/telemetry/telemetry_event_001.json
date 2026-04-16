@@ -1,0 +1,16 @@
+{
+  "alert_id": "TEL-7001",
+  "timestamp": "2026-04-15T09:21:00Z",
+  "tool": "grafana",
+  "alert_name": "High API Error Rate",
+  "service": "portfolio-api",
+  "asset": "k8s-node-03",
+  "metric": "http_5xx_rate",
+  "current_value": 11.8,
+  "threshold": 5.0,
+  "unit": "percent",
+  "labels": {
+    "env": "prod",
+    "namespace": "portfolio"
+  }
+}

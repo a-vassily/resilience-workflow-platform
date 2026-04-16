@@ -1,0 +1,10 @@
+[
+  {
+    "risk_ref": "RISK-001",
+    "service": "portfolio-api",
+    "critical_service": true,
+    "owner": "application_support_team",
+    "business_process": "portfolio_management",
+    "dependencies": ["market-data-gateway", "iam-core", "postgres-prod"]
+  }
+]

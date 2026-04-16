@@ -1,0 +1,33 @@
+rules:
+  - id: PRIV_ACCESS_CRITICAL_SERVICE
+    description: Privileged access anomaly on critical service
+    confidence_score: 0.78
+    draft_severity: high
+    conditions:
+      all:
+        - event_type_in: [failed_privileged_access, repeated_failed_privileged_access]
+        - same_linked_service: true
+        - critical_service: true
+    min_events: 2
+
+  - id: VENDOR_DEGRADATION_WITH_SERVICE_ERRORS
+    description: Vendor degradation affecting critical service with telemetry errors
+    confidence_score: 0.74
+    draft_severity: high
+    conditions:
+      all:
+        - event_type_in: [vendor_degradation, service_error_rate_high]
+        - same_linked_service: true
+        - critical_service: true
+    min_events: 2
+
+  - id: CYBER_PLUS_OPERATIONAL_DEGRADATION
+    description: Cyber signal plus operational degradation on same service
+    confidence_score: 0.81
+    draft_severity: high
+    conditions:
+      all:
+        - tag_any: [privileged, security]
+        - event_type_in: [service_error_rate_high, failed_privileged_access, repeated_failed_privileged_access]
+        - same_linked_service: true
+    min_events: 2

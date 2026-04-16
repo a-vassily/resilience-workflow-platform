@@ -1,0 +1,10 @@
+{
+  "sys_id": "SNOW-9001",
+  "opened_at": "2026-04-15T09:23:00Z",
+  "caller_id": "ops.user",
+  "cmdb_ci": "srv-ops-17",
+  "business_service": "portfolio-api",
+  "short_description": "Portfolio API incident created from monitoring",
+  "priority": "2",
+  "state": "New"
+}
