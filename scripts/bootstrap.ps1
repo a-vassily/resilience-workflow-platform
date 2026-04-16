@@ -37,15 +37,15 @@ Write-Host "Waiting for services to initialize..." -ForegroundColor Yellow
 Start-Sleep -Seconds 8
 
 # 4. Create Python virtual environment if missing
-if (!(Test-Path ".venv")) {
-    Write-Host "Creating virtual environment..." -ForegroundColor Yellow
-    py -3.11 -m venv .venv
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "[FAIL] Failed to create virtual environment." -ForegroundColor Red
-        exit 1
-    }
-    Write-Host "[OK] Virtual environment created" -ForegroundColor Green
-}
+#if (!(Test-Path ".venv")) {
+#    Write-Host "Creating virtual environment..." -ForegroundColor Yellow
+#    py -3.11 -m venv .venv
+#    if ($LASTEXITCODE -ne 0) {
+#        Write-Host "[FAIL] Failed to create virtual environment." -ForegroundColor Red
+#        exit 1
+#    }
+#    Write-Host "[OK] Virtual environment created" -ForegroundColor Green
+#}
 
 # 5. Install dependencies
 Write-Host "Installing Python dependencies..." -ForegroundColor Yellow

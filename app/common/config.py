@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     minio_secure: bool = Field(default=False, alias='MINIO_SECURE')
 
     llm_base_url: str = Field(default='http://localhost:1234', alias='LLM_BASE_URL')
-    llm_chat_path: str = Field(default='/v1/chat/completions', alias='LLM_CHAT_PATH')
+    llm_chat_path: str = Field(default='/v1/responses', alias='LLM_CHAT_PATH')
     llm_model: str = Field(default='qwen2.5-7b-instruct', alias='LLM_MODEL')
 
     intelligence_service_url: str = Field(default='http://localhost:8001', alias='INTELLIGENCE_SERVICE_URL')

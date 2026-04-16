@@ -1,9 +1,18 @@
 import os
 import sys
 import json
+from pathlib import Path
+
 import requests
 import psycopg2
+from dotenv import load_dotenv
 from minio import Minio
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from app.common.llm import build_lmstudio_request_body
+
+load_dotenv()
 
 POSTGRES_HOST = os.getenv("POSTGRES_HOST", "localhost")
 POSTGRES_PORT = int(os.getenv("POSTGRES_PORT", "5432"))
@@ -13,12 +22,12 @@ POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD", "resilience")
 
 MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "localhost:9000")
 MINIO_ACCESS_KEY = os.getenv("MINIO_ROOT_USER", "minio")
-MINIO_SECRET_KEY = os.getenv("MINIO_ROOT_PASSWORD", "minio123")
+MINIO_SECRET_KEY = os.getenv("MINIO_ROOT_PASSWORD", "minio12345")
 MINIO_SECURE = os.getenv("MINIO_SECURE", "false").lower() == "true"
 
 LLM_BASE_URL = os.getenv("LLM_BASE_URL", "http://localhost:1234")
-LLM_CHAT_PATH = os.getenv("LLM_CHAT_PATH", "/v1/chat/completions")
-LLM_MODEL = os.getenv("LLM_MODEL", "qwen2.5-7b-instruct")
+LLM_CHAT_PATH = os.getenv("LLM_CHAT_PATH", "/v1/responses")
+LLM_MODEL = os.getenv("LLM_MODEL", "nvidia/nemotron-3-nano-4b")
 
 
 def test_postgres():
@@ -55,16 +64,13 @@ def test_minio():
 def test_lmstudio():
     print("Testing LM Studio...")
     url = f"{LLM_BASE_URL.rstrip('/')}{LLM_CHAT_PATH}"
-    payload = {
-        "model": LLM_MODEL,
-        "messages": [
-            {"role": "system", "content": "You are a JSON-only assistant."},
-            {"role": "user", "content": "Return exactly this JSON: {\"status\":\"ok\"}"}
-        ],
-        "temperature": 0.1,
-        "stream": False,
-        "response_format": {"type": "json_object"}
-    }
+    payload = build_lmstudio_request_body(
+        llm_path=LLM_CHAT_PATH,
+        model=LLM_MODEL,
+        system_prompt="You are a JSON-only assistant.",
+        user_prompt='Return exactly this JSON: {"status":"ok"}',
+        temperature=0.1,
+    )
     r = requests.post(url, json=payload, timeout=60)
     r.raise_for_status()
     data = r.json()

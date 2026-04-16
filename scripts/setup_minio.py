@@ -4,7 +4,7 @@ import os
 
 MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "localhost:9000")
 MINIO_ACCESS_KEY = os.getenv("MINIO_ROOT_USER", "minio")
-MINIO_SECRET_KEY = os.getenv("MINIO_ROOT_PASSWORD", "minio123")
+MINIO_SECRET_KEY = os.getenv("MINIO_ROOT_PASSWORD", "minio12345")
 MINIO_SECURE = os.getenv("MINIO_SECURE", "false").lower() == "true"
 
 BUCKETS = [

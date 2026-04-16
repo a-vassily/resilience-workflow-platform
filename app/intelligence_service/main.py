@@ -10,6 +10,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.common.config import get_settings
+from app.common.llm import build_lmstudio_request_body, extract_lmstudio_json
 from app.common.repository import get_incident, insert_ai_request, insert_ai_response
 
 app = FastAPI(title='Resilience Intelligence Service', version='0.3.0')
@@ -104,23 +105,20 @@ def build_prompt_package(incident: dict) -> tuple[dict, list[str]]:
 
 def call_lmstudio(prompt_package: dict) -> tuple[dict, dict]:
     url = f"{settings.llm_base_url.rstrip('/')}{settings.llm_chat_path}"
-    body = {
-        'model': settings.llm_model,
-        'messages': [
-            {'role': 'system', 'content': prompt_package['system']},
-            {'role': 'user', 'content': json.dumps({k: v for k, v in prompt_package.items() if k != 'system'}, ensure_ascii=False)},
-        ],
-        'temperature': 0.2,
-        'stream': False,
-        'response_format': {'type': 'json_object'},
-    }
+    user_prompt = json.dumps({k: v for k, v in prompt_package.items() if k != 'system'}, ensure_ascii=False)
+    body = build_lmstudio_request_body(
+        llm_path=settings.llm_chat_path,
+        model=settings.llm_model,
+        system_prompt=prompt_package['system'],
+        user_prompt=user_prompt,
+        temperature=0.2,
+    )
     try:
         with httpx.Client(timeout=120) as client:
             resp = client.post(url, json=body)
             resp.raise_for_status()
             raw = resp.json()
-            content = raw['choices'][0]['message']['content']
-            return json.loads(content), raw.get('usage', {})
+            return extract_lmstudio_json(settings.llm_chat_path, raw), raw.get('usage', {})
     except Exception:
         return {
             'summary': 'Fallback enrichment used because the model route was unavailable.',

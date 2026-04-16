@@ -4,6 +4,7 @@
 docker compose down -v
 docker compose up -d
 
+Also reset Minio by running scripts/setup_minio.py to create the buckets etc.
 
 In PyCharm -- 
 start:
@@ -111,3 +112,77 @@ curl.exe -X POST "http://localhost:8000/ingest/file" -F "file=@sample_data/risk/
 Then run the worker scripts again.
 
 
+--------
+How to check things are ok
+
+(resilience-starter-codebase) PS C:\Users\v_ant\PycharmProjects\resilience_starter_codebase> docker compose ps
+NAME                  IMAGE                COMMAND                  SERVICE    CREATED          STATUS          PORTS
+resilience_minio      minio/minio:latest   "/usr/bin/docker-ent…"   minio      12 minutes ago   Up 12 minutes   0.0.0.0:9000-9001->9000-9001/tcp, [::]:9000-9001->9000-9001/tcp
+resilience_postgres   postgres:16          "docker-entrypoint.s…"   postgres   12 minutes ago   Up 12 minutes   0.0.0.0:5432->5432/tcp, [::]:5432->5432/tcp
+(resilience-starter-codebase) PS C:\Users\v_ant\PycharmProjects\resilience_starter_codebase> docker exec -it resilience_postgres psql -U resilience -d resilience -c "\dt"
+                   List of relations
+ Schema |          Name           | Type  |   Owner
+--------+-------------------------+-------+------------
+ public | ai_enrichment_requests  | table | resilience
+ public | ai_enrichment_responses | table | resilience
+ public | audit_log               | table | resilience
+ public | candidate_incidents     | table | resilience
+ public | canonical_events        | table | resilience
+ public | incident_artifacts      | table | resilience
+ public | incident_event_links    | table | resilience
+ public | raw_events              | table | resilience
+ public | remediation_actions     | table | resilience
+ public | review_actions          | table | resilience
+ public | risk_context_refs       | table | resilience
+ public | service_context         | table | resilience
+(12 rows)
+
+
+How to verify MinIO
+
+Open:
+
+MinIO API: http://localhost:9000
+MinIO Console: http://localhost:9001
+
+Log in with:
+
+user: minio
+password: minio12345
+
+You should see these buckets:
+
+raw-events
+artifacts
+prompts
+reports
+
+Recommended execution order
+
+From the project root in PowerShell:
+
+.\scripts\bootstrap.ps1
+
+If you want a full rebuild of the PostgreSQL volume:
+
+.\scripts\bootstrap.ps1 -RebuildDb
+6. Small but important practical note
+
+For LM Studio to pass the test:
+
+LM Studio must be open
+the local server must be enabled
+the selected model must be loaded
+the model name must match LLM_MODEL
+
+If LM Studio exposes a slightly different model identifier, update the .env value.
+
+7. One more useful addition
+
+A good next improvement is a single Python seed script that loads:
+
+reference/services.json
+reference/risk_context.json
+sample_data/*.json
+
+into PostgreSQL and MinIO automatically so the first demo run is immediate.
