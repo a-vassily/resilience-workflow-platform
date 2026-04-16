@@ -7,7 +7,7 @@
     <envs>
       <env name="PYTHONUNBUFFERED" value="1" />
       <env name="LLM_BASE_URL" value="http://localhost:1234" />
-      <env name="LLM_MODEL" value="qwen2.5-7b-instruct" />
+      <env name="LLM_MODEL" value="nvidia/nemotron-3-nano-4b" />
       <env name="LLM_CHAT_PATH" value="/v1/chat/completions" />
     </envs>
     <option name="SDK_HOME" value="" />
