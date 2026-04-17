@@ -3,7 +3,9 @@
   "timestamp": "2026-04-15T09:20:10Z",
   "vendor_name": "market-data-gateway",
   "status": "degraded",
-  "impacted_services": ["portfolio-api"],
+  "impacted_services": [
+    "portfolio-api"
+  ],
   "latency_ms_p95": 2200,
   "error_rate_percent": 14.2,
   "status_page_reference": "https://status.example.vendor/incidents/3001",

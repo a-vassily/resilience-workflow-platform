@@ -1,0 +1,14 @@
+{
+  "event_id": "IAM-5510",
+  "timestamp": "2026-04-16T08:13:10Z",
+  "system": "cyberark",
+  "event_type": "impossible_travel_admin_login",
+  "account": "svc-reporting",
+  "target_asset": "rep-svc-02",
+  "service": "client-reporting",
+  "failure_count": 1,
+  "time_window_minutes": 60,
+  "risk_score": 88,
+  "geo_a": "Luxembourg",
+  "geo_b": "Singapore"
+}

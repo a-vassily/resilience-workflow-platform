@@ -1,0 +1,18 @@
+{
+  "offense_id": "QR-9200",
+  "event_time": "2026-04-16T01:30:00Z",
+  "event_name": "Break Glass Account Used",
+  "severity": 8,
+  "asset_hostname": "iam-vault-01",
+  "service": "iam-core",
+  "user_account": "breakglass-admin",
+  "src_ip": "10.55.2.11",
+  "dst_ip": "10.55.2.10",
+  "category": "break_glass",
+  "tags": [
+    "privileged",
+    "break_glass",
+    "security"
+  ],
+  "raw_reference": "/api/siem/events/QR-9200"
+}

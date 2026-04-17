@@ -1,0 +1,12 @@
+{
+  "event_id": "IAM-5600",
+  "timestamp": "2026-04-16T01:31:30Z",
+  "system": "cyberark",
+  "event_type": "pam_break_glass_used",
+  "account": "breakglass-admin",
+  "target_asset": "iam-vault-01",
+  "service": "iam-core",
+  "failure_count": 1,
+  "time_window_minutes": 60,
+  "risk_score": 91
+}

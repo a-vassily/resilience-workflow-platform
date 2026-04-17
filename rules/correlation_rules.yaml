@@ -1,33 +1,111 @@
 rules:
   - id: PRIV_ACCESS_CRITICAL_SERVICE
-    description: Privileged access anomaly on critical service
+    description: Failed privileged access combined with repeated PAM failures on a critical service.
     confidence_score: 0.78
     draft_severity: high
+    min_events: 2
     conditions:
       all:
-        - event_type_in: [failed_privileged_access, repeated_failed_privileged_access]
+        - event_type_all: [failed_privileged_access, repeated_failed_privileged_access]
         - same_linked_service: true
         - critical_service: true
+        - min_distinct_sources: 2
+
+  - id: VENDOR_OUTAGE_WITH_SYNTHETIC_FAILURE
+    description: Upstream dependency outage combined with synthetic or latency degradation on a critical service.
+    confidence_score: 0.86
+    draft_severity: critical
     min_events: 2
+    conditions:
+      all:
+        - event_type_all: [vendor_outage, synthetic_check_failure]
+        - same_linked_service: true
+        - critical_service: true
+        - vendor_present: true
 
   - id: VENDOR_DEGRADATION_WITH_SERVICE_ERRORS
-    description: Vendor degradation affecting critical service with telemetry errors
+    description: Vendor degradation materially affecting the service and generating user-facing errors.
     confidence_score: 0.74
     draft_severity: high
+    min_events: 2
     conditions:
       all:
-        - event_type_in: [vendor_degradation, service_error_rate_high]
+        - event_type_all: [vendor_degradation, service_error_rate_high]
         - same_linked_service: true
         - critical_service: true
-    min_events: 2
 
-  - id: CYBER_PLUS_OPERATIONAL_DEGRADATION
-    description: Cyber signal plus operational degradation on same service
-    confidence_score: 0.81
+  - id: PLATFORM_INSTABILITY_CRITICAL_WORKLOAD
+    description: Platform instability signs on a critical workload, such as restart storms plus capacity stress.
+    confidence_score: 0.82
     draft_severity: high
+    min_events: 2
     conditions:
       all:
-        - tag_any: [privileged, security]
-        - event_type_in: [service_error_rate_high, failed_privileged_access, repeated_failed_privileged_access]
+        - event_type_any: [pod_restart_storm]
+        - event_type_count_at_least:
+            types: [cpu_saturation, memory_pressure, latency_spike]
+            count: 1
         - same_linked_service: true
+        - critical_service: true
+
+  - id: BREAK_GLASS_ADMIN_ACTIVITY
+    description: Break-glass or suspicious administrative activity on a service with supporting privileged context.
+    confidence_score: 0.84
+    draft_severity: critical
     min_events: 2
+    conditions:
+      all:
+        - event_type_any: [break_glass_account_used, suspicious_admin_session, privileged_group_change]
+        - tag_any: [break_glass, admin_activity, privileged]
+        - min_distinct_sources: 2
+        - severity_at_least: high
+
+  - id: EXFILTRATION_WITH_IDENTITY_ANOMALY
+    description: Data exfiltration signal paired with identity anomaly, indicating possible account compromise.
+    confidence_score: 0.9
+    draft_severity: critical
+    min_events: 2
+    conditions:
+      all:
+        - event_type_all: [data_exfiltration_alert, impossible_travel_admin_login]
+        - same_linked_service: true
+        - min_distinct_sources: 2
+        - severity_at_least: high
+
+  - id: STORAGE_CAPACITY_AND_BACKUP_FAILURE
+    description: Storage saturation with backup failures and service degradation, increasing recovery risk.
+    confidence_score: 0.79
+    draft_severity: high
+    min_events: 2
+    conditions:
+      all:
+        - event_type_any: [disk_full_risk]
+        - event_type_count_at_least:
+            types: [backup_failure, service_error_rate_high]
+            count: 1
+        - same_linked_service: true
+
+  - id: BATCH_PROCESSING_DEGRADATION
+    description: Batch workload failing under queue pressure or upstream latency.
+    confidence_score: 0.68
+    draft_severity: medium
+    min_events: 2
+    conditions:
+      all:
+        - event_type_any: [batch_job_failure]
+        - event_type_count_at_least:
+            types: [queue_backlog_high, latency_spike, vendor_latency_degradation]
+            count: 1
+        - same_linked_service: true
+
+  - id: REPEATED_WEAK_SIGNAL_BURST
+    description: Three or more weak but related signals on the same service, warranting human review.
+    confidence_score: 0.64
+    draft_severity: medium
+    min_events: 3
+    conditions:
+      all:
+        - event_type_count_at_least:
+            types: [service_error_rate_high, latency_spike, repeated_failed_privileged_access, vendor_degradation, incident_ticket_signal, queue_backlog_high]
+            count: 3
+        - same_linked_service: true

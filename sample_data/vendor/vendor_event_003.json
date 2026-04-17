@@ -1,0 +1,13 @@
+{
+  "vendor_event_id": "VEND-5100",
+  "timestamp": "2026-04-16T03:05:00Z",
+  "vendor_name": "pricing-feed-hub",
+  "status": "latency",
+  "impacted_services": [
+    "nav-batch"
+  ],
+  "latency_ms_p95": 6800,
+  "error_rate_percent": 4.0,
+  "status_page_reference": "https://status.example.vendor/incidents/5100",
+  "declared_severity": "major"
+}

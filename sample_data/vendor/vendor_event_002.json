@@ -1,0 +1,13 @@
+{
+  "vendor_event_id": "VEND-4100",
+  "timestamp": "2026-04-16T08:10:00Z",
+  "vendor_name": "statement-renderer-saas",
+  "status": "outage",
+  "impacted_services": [
+    "client-reporting"
+  ],
+  "latency_ms_p95": 0,
+  "error_rate_percent": 100.0,
+  "status_page_reference": "https://status.example.vendor/incidents/4100",
+  "declared_severity": "critical"
+}

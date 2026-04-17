@@ -1,0 +1,16 @@
+{
+  "alert_id": "TEL-9102",
+  "timestamp": "2026-04-16T03:09:00Z",
+  "tool": "grafana",
+  "alert_name": "Queue Backlog High",
+  "service": "nav-batch",
+  "asset": "queue-broker-01",
+  "metric": "queue_backlog",
+  "current_value": 18000,
+  "threshold": 5000,
+  "unit": "messages",
+  "labels": {
+    "env": "prod",
+    "namespace": "nav-batch"
+  }
+}

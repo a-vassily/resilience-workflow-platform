@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 import time
-from collections import defaultdict
+from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from uuid import uuid4
@@ -18,6 +18,7 @@ from app.common.repository import (
 )
 
 RULES_PATH = Path(__file__).resolve().parents[2] / 'rules' / 'correlation_rules.yaml'
+SEVERITY_ORDER = {'info': 0, 'low': 1, 'medium': 2, 'high': 3, 'critical': 4}
 
 
 def run_once() -> int:
@@ -43,17 +44,16 @@ def _run_batch() -> int:
     for group_key, group_events in grouped.items():
         service_name = next((e.get('linked_service') for e in group_events if e.get('linked_service')), group_key)
         context = get_service_context(service_name) or {}
-        event_types = {e['event_type'] for e in group_events}
-        tags = {tag for e in group_events for tag in (e.get('enrichment_tags') or [])}
+        matched_rules = [rule for rule in rules if _matches(rule, context, group_events)]
 
-        matched_rule = None
-        for rule in rules:
-            if _matches(rule, event_types, tags, context, group_events):
-                matched_rule = rule
-                break
-
-        if not matched_rule:
+        if not matched_rules:
             continue
+
+        best_score = max(float(rule.get('confidence_score', 0.5)) for rule in matched_rules)
+        draft_severity = _max_severity([rule.get('draft_severity', 'medium') for rule in matched_rules] + [e.get('severity', 'low') for e in group_events])
+        rule_hits = [rule['id'] for rule in matched_rules]
+        event_type_counter = Counter(e['event_type'] for e in group_events)
+        source_type_counter = Counter(e['source_type'] for e in group_events)
 
         incident_id = f'inc-{uuid4()}'
         review_due_at = datetime.now(timezone.utc) + timedelta(hours=4)
@@ -61,18 +61,20 @@ def _run_batch() -> int:
         incident = {
             'incident_id': incident_id,
             'status': 'candidate',
-            'confidence_score': matched_rule['confidence_score'],
-            'rule_hits': [matched_rule['id']],
+            'confidence_score': round(best_score, 4),
+            'rule_hits': rule_hits,
             'service_name': service_name,
             'critical_service': bool(context.get('critical_service', False)),
             'owner': context.get('owner'),
             'vendor_name': next((e.get('vendor_reference') for e in group_events if e.get('vendor_reference')), None),
             'threshold_flags': {
                 'critical_service_impact': bool(context.get('critical_service', False)),
-                'unauthorized_access_indicator': any(e['event_type'] in ['failed_privileged_access', 'repeated_failed_privileged_access'] for e in group_events),
+                'unauthorized_access_indicator': any(e['event_type'] in ['failed_privileged_access', 'repeated_failed_privileged_access', 'impossible_travel_admin_login'] for e in group_events),
                 'multi_signal_pattern': len(group_events) >= 2,
+                'vendor_dependency_issue': any(e['source_type'] == 'vendor_event' for e in group_events),
+                'platform_instability': any(e['event_type'] in ['pod_restart_storm', 'cpu_saturation', 'memory_pressure'] for e in group_events),
             },
-            'draft_severity': matched_rule['draft_severity'],
+            'draft_severity': draft_severity,
             'review_due_at': review_due_at.isoformat(),
             'initial_report_due_at': initial_report_due_at.isoformat(),
             'business_context': {
@@ -85,9 +87,10 @@ def _run_batch() -> int:
             'classification_support': {
                 'threshold_flags': {
                     'critical_service_impact': bool(context.get('critical_service', False)),
-                    'unauthorized_access_indicator': any(e['event_type'] in ['failed_privileged_access', 'repeated_failed_privileged_access'] for e in group_events),
+                    'unauthorized_access_indicator': any(e['event_type'] in ['failed_privileged_access', 'repeated_failed_privileged_access', 'impossible_travel_admin_login'] for e in group_events),
                 },
-                'draft_severity': matched_rule['draft_severity'],
+                'draft_severity': draft_severity,
+                'matched_rule_count': len(rule_hits),
             },
             'workflow_state': {
                 'assigned_to': 'incident_commander',
@@ -95,12 +98,15 @@ def _run_batch() -> int:
                 'initial_report_due_at': initial_report_due_at.isoformat(),
             },
             'incident_payload': {
-                'matched_rule': matched_rule['id'],
+                'matched_rules': rule_hits,
+                'event_type_counts': dict(event_type_counter),
+                'source_type_counts': dict(source_type_counter),
                 'events': [
                     {
                         'event_id': e['event_id'],
                         'event_type': e['event_type'],
                         'source_type': e['source_type'],
+                        'severity': e.get('severity'),
                         'event_timestamp': e['event_timestamp'].isoformat() if hasattr(e['event_timestamp'], 'isoformat') else str(e['event_timestamp']),
                     }
                     for e in group_events
@@ -142,18 +148,45 @@ def _loop_enabled(env_name: str) -> bool:
     return os.getenv(env_name, 'false').strip().lower() in {'1', 'true', 'yes', 'on'}
 
 
-def _matches(rule: dict, event_types: set[str], tags: set[str], context: dict, service_events: list[dict]) -> bool:
+def _matches(rule: dict, context: dict, service_events: list[dict]) -> bool:
     if len(service_events) < rule.get('min_events', 1):
         return False
-    for cond in rule['conditions']['all']:
-        if 'event_type_in' in cond and not event_types.intersection(set(cond['event_type_in'])):
+
+    event_types = [e['event_type'] for e in service_events]
+    event_type_set = set(event_types)
+    tags = {tag for e in service_events for tag in (e.get('enrichment_tags') or [])}
+    severities = [e.get('severity', 'low') for e in service_events]
+    source_types = {e.get('source_type') for e in service_events}
+
+    for cond in rule.get('conditions', {}).get('all', []):
+        if 'event_type_all' in cond and not set(cond['event_type_all']).issubset(event_type_set):
             return False
+        if 'event_type_any' in cond and not event_type_set.intersection(set(cond['event_type_any'])):
+            return False
+        if 'event_type_count_at_least' in cond:
+            spec = cond['event_type_count_at_least']
+            count = sum(1 for e in event_types if e in set(spec.get('types', [])))
+            if count < int(spec.get('count', 1)):
+                return False
         if cond.get('critical_service') and not context.get('critical_service'):
             return False
         if 'tag_any' in cond and not tags.intersection(set(cond['tag_any'])):
+            return False
+        if 'source_type_any' in cond and not source_types.intersection(set(cond['source_type_any'])):
             return False
         if cond.get('same_linked_service'):
             services = {e.get('linked_service') for e in service_events}
             if len(services) != 1:
                 return False
+        if cond.get('vendor_present') and not any(e.get('vendor_reference') for e in service_events):
+            return False
+        if 'min_distinct_sources' in cond and len(source_types) < int(cond['min_distinct_sources']):
+            return False
+        if 'severity_at_least' in cond and max(SEVERITY_ORDER.get(s, 0) for s in severities) < SEVERITY_ORDER.get(cond['severity_at_least'], 0):
+            return False
     return True
+
+
+def _max_severity(values: list[str]) -> str:
+    values = values or ['medium']
+    return max(values, key=lambda x: SEVERITY_ORDER.get(x, 0))

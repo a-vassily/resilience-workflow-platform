@@ -1,0 +1,18 @@
+{
+  "risk_ref": "RISK-002",
+  "service": "client-reporting",
+  "critical_service": true,
+  "owner": "reporting_ops_team",
+  "business_process": "client_reporting",
+  "data_classification": "confidential",
+  "regulatory_relevance": [
+    "client_reporting",
+    "operational_resilience"
+  ],
+  "rto_minutes": 120,
+  "dependencies": [
+    "statement-renderer-saas",
+    "document-store",
+    "sso-gateway"
+  ]
+}

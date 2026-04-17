@@ -1,0 +1,16 @@
+{
+  "alert_id": "TEL-9100",
+  "timestamp": "2026-04-16T03:07:00Z",
+  "tool": "grafana",
+  "alert_name": "Batch Worker Restart Storm",
+  "service": "nav-batch",
+  "asset": "batch-node-02",
+  "metric": "container_restarts",
+  "current_value": 14,
+  "threshold": 3,
+  "unit": "count",
+  "labels": {
+    "env": "prod",
+    "namespace": "nav-batch"
+  }
+}

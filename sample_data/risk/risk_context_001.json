@@ -5,7 +5,14 @@
   "owner": "application_support_team",
   "business_process": "portfolio_management",
   "data_classification": "confidential",
-  "regulatory_relevance": ["operational_resilience", "incident_reporting"],
+  "regulatory_relevance": [
+    "operational_resilience",
+    "incident_reporting"
+  ],
   "rto_minutes": 60,
-  "dependencies": ["market-data-gateway", "iam-core", "postgres-prod"]
+  "dependencies": [
+    "market-data-gateway",
+    "iam-core",
+    "postgres-prod"
+  ]
 }

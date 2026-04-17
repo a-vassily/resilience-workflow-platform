@@ -1,0 +1,16 @@
+{
+  "alert_id": "TEL-9103",
+  "timestamp": "2026-04-16T03:10:00Z",
+  "tool": "grafana",
+  "alert_name": "Batch Job Failures",
+  "service": "nav-batch",
+  "asset": "batch-controller-01",
+  "metric": "batch_job_failures",
+  "current_value": 6,
+  "threshold": 1,
+  "unit": "count",
+  "labels": {
+    "env": "prod",
+    "namespace": "nav-batch"
+  }
+}

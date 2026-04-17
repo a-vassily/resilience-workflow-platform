@@ -1,0 +1,18 @@
+{
+  "offense_id": "QR-9100",
+  "event_time": "2026-04-16T08:12:00Z",
+  "event_name": "Data Exfiltration Alert",
+  "severity": 9,
+  "asset_hostname": "rep-svc-02",
+  "service": "client-reporting",
+  "user_account": "svc-reporting",
+  "src_ip": "10.40.18.15",
+  "dst_ip": "198.51.100.22",
+  "category": "data_exfiltration",
+  "tags": [
+    "security",
+    "egress",
+    "sensitive_data"
+  ],
+  "raw_reference": "/api/siem/events/QR-9100"
+}

@@ -1,0 +1,16 @@
+{
+  "alert_id": "TEL-8101",
+  "timestamp": "2026-04-16T08:11:30Z",
+  "tool": "grafana",
+  "alert_name": "Latency Spike",
+  "service": "client-reporting",
+  "asset": "rep-ingress-01",
+  "metric": "latency_ms_p95",
+  "current_value": 3400,
+  "threshold": 800,
+  "unit": "ms",
+  "labels": {
+    "env": "prod",
+    "namespace": "reporting"
+  }
+}

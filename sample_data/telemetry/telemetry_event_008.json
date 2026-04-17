@@ -1,0 +1,16 @@
+{
+  "alert_id": "TEL-9200",
+  "timestamp": "2026-04-16T02:45:00Z",
+  "tool": "grafana",
+  "alert_name": "Disk Space Critically Low",
+  "service": "client-reporting",
+  "asset": "rep-db-01",
+  "metric": "disk_used_percent",
+  "current_value": 92,
+  "threshold": 85,
+  "unit": "percent",
+  "labels": {
+    "env": "prod",
+    "namespace": "reporting-db"
+  }
+}

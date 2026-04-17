@@ -1,0 +1,18 @@
+{
+  "risk_ref": "RISK-003",
+  "service": "nav-batch",
+  "critical_service": true,
+  "owner": "fund_accounting_ops",
+  "business_process": "nav_calculation",
+  "data_classification": "confidential",
+  "regulatory_relevance": [
+    "fund_accounting",
+    "operational_resilience"
+  ],
+  "rto_minutes": 180,
+  "dependencies": [
+    "pricing-feed-hub",
+    "queue-broker",
+    "batch-workers"
+  ]
+}

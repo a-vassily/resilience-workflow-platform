@@ -1,0 +1,16 @@
+{
+  "alert_id": "TEL-9101",
+  "timestamp": "2026-04-16T03:08:00Z",
+  "tool": "grafana",
+  "alert_name": "CPU Saturation",
+  "service": "nav-batch",
+  "asset": "batch-node-02",
+  "metric": "cpu_saturation",
+  "current_value": 96,
+  "threshold": 85,
+  "unit": "percent",
+  "labels": {
+    "env": "prod",
+    "namespace": "nav-batch"
+  }
+}

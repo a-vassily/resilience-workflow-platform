@@ -1,0 +1,16 @@
+{
+  "alert_id": "TEL-8100",
+  "timestamp": "2026-04-16T08:11:00Z",
+  "tool": "grafana",
+  "alert_name": "Synthetic Journey Failure",
+  "service": "client-reporting",
+  "asset": "rep-ingress-01",
+  "metric": "synthetic_check_failure",
+  "current_value": 5,
+  "threshold": 1,
+  "unit": "count",
+  "labels": {
+    "env": "prod",
+    "namespace": "reporting"
+  }
+}

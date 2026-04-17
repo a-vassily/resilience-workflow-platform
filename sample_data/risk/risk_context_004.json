@@ -1,0 +1,18 @@
+{
+  "risk_ref": "RISK-004",
+  "service": "iam-core",
+  "critical_service": true,
+  "owner": "identity_team",
+  "business_process": "access_management",
+  "data_classification": "confidential",
+  "regulatory_relevance": [
+    "security",
+    "operational_resilience"
+  ],
+  "rto_minutes": 30,
+  "dependencies": [
+    "directory-core",
+    "pam-vault",
+    "sso-gateway"
+  ]
+}

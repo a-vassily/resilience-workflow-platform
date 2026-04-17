@@ -1,0 +1,16 @@
+{
+  "alert_id": "TEL-9201",
+  "timestamp": "2026-04-16T02:46:00Z",
+  "tool": "grafana",
+  "alert_name": "Backup Failure",
+  "service": "client-reporting",
+  "asset": "rep-db-01",
+  "metric": "backup_failures",
+  "current_value": 2,
+  "threshold": 0,
+  "unit": "count",
+  "labels": {
+    "env": "prod",
+    "namespace": "reporting-db"
+  }
+}
