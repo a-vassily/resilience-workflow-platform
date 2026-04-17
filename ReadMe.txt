@@ -70,9 +70,26 @@ Recommended execution order
 
 
 HOW TO RUN THE DEMO
+automatically:
+Open http://localhost:8002/ui
 
+restart the Control API, Intelligence Service, Normalizer, and Correlator
+open http://localhost:8002/ui
+use:
+Reset & seed
+Reset, seed & enrich
+Run AI enrichment
 
+Optional loop mode:
 
+normalizer:
+NORMALIZER_LOOP=true
+NORMALIZER_POLL_SECONDS=5
+NORMALIZER_MAX_CYCLES=0
+correlator:
+CORRELATOR_LOOP=true
+CORRELATOR_POLL_SECONDS=5
+CORRELATOR_MAX_CYCLES=0
 
 The normalizer and correlator are written as one-shot jobs, not long-running workers. They do one pass, print the count, and exit.
 

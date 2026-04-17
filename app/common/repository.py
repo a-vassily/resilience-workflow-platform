@@ -3,7 +3,10 @@ from __future__ import annotations
 import hashlib
 import json
 from contextlib import contextmanager
+from datetime import date, datetime
+from decimal import Decimal
 from typing import Any, Iterator
+from uuid import UUID
 
 from sqlalchemy import text
 
@@ -23,10 +26,35 @@ def get_session() -> Iterator:
         session.close()
 
 
+def _clean_value(value: Any) -> Any:
+    if isinstance(value, Decimal):
+        return float(value)
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    if isinstance(value, UUID):
+        return str(value)
+    if isinstance(value, dict):
+        return {k: _clean_value(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_clean_value(v) for v in value]
+    return value
+
+
+def _mapping_list(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [_clean_value(dict(r)) for r in rows]
+
+
+def _mapping_one(row: dict[str, Any] | None) -> dict[str, Any] | None:
+    return _clean_value(dict(row)) if row else None
+
+
 def _external_event_id(payload: dict[str, Any]) -> str | None:
     return payload.get('event_id') or payload.get('offense_id') or payload.get('vendor_event_id') or payload.get('alert_id') or payload.get('risk_ref')
 
 
+# -----------------------------
+# Ingest / normalization
+# -----------------------------
 def insert_raw_event(source_system: str, source_type: str, payload: dict[str, Any], evidence_pointer: str | None) -> str:
     payload_text = json.dumps(payload, sort_keys=True)
     payload_hash = hashlib.sha256(payload_text.encode('utf-8')).hexdigest()
@@ -67,7 +95,7 @@ def list_unprocessed_raw_events() -> list[dict[str, Any]]:
                 """
             )
         ).mappings().all()
-        return [dict(row) for row in rows]
+        return _mapping_list(rows)
 
 
 def mark_raw_event_normalized(raw_event_id: str) -> None:
@@ -174,6 +202,9 @@ def upsert_service_context(payload: dict[str, Any]) -> None:
             )
 
 
+# -----------------------------
+# Correlation / incidents
+# -----------------------------
 def list_unprocessed_canonical_events() -> list[dict[str, Any]]:
     with get_session() as session:
         rows = session.execute(
@@ -186,7 +217,7 @@ def list_unprocessed_canonical_events() -> list[dict[str, Any]]:
                 """
             )
         ).mappings().all()
-        return [dict(r) for r in rows]
+        return _mapping_list(rows)
 
 
 def get_service_context(service_name: str | None) -> dict[str, Any] | None:
@@ -197,7 +228,7 @@ def get_service_context(service_name: str | None) -> dict[str, Any] | None:
             text("SELECT * FROM service_context WHERE service_name = :service_name"),
             {'service_name': service_name},
         ).mappings().first()
-        return dict(row) if row else None
+        return _mapping_one(row)
 
 
 def mark_canonical_events_processed(event_ids: list[str]) -> None:
@@ -279,7 +310,7 @@ def link_incident_events(incident_id: str, event_ids: list[str], link_reason: st
 def list_incidents() -> list[dict[str, Any]]:
     with get_session() as session:
         rows = session.execute(text('SELECT * FROM candidate_incidents ORDER BY created_at DESC')).mappings().all()
-        return [dict(r) for r in rows]
+        return _mapping_list(rows)
 
 
 def get_incident(incident_id: str) -> dict[str, Any] | None:
@@ -288,7 +319,24 @@ def get_incident(incident_id: str) -> dict[str, Any] | None:
             text('SELECT * FROM candidate_incidents WHERE incident_id = :incident_id'),
             {'incident_id': incident_id},
         ).mappings().first()
-        return dict(row) if row else None
+        incident = _mapping_one(row)
+        if not incident:
+            return None
+        event_rows = session.execute(
+            text(
+                """
+                SELECT l.event_id, l.link_reason, e.event_type, e.source_type, e.event_timestamp
+                FROM incident_event_links l
+                JOIN canonical_events e ON e.event_id = l.event_id
+                WHERE l.incident_id = :incident_id
+                ORDER BY e.event_timestamp ASC
+                """
+            ),
+            {'incident_id': incident_id},
+        ).mappings().all()
+        incident['linked_events'] = _mapping_list(event_rows)
+        incident['source_event_refs'] = [row['event_id'] for row in incident['linked_events']]
+        return incident
 
 
 def update_incident_status(incident_id: str, status: str, decision_payload: dict[str, Any] | None = None) -> None:
@@ -354,9 +402,12 @@ def list_review_actions(incident_id: str) -> list[dict[str, Any]]:
             text('SELECT * FROM review_actions WHERE incident_id = :incident_id ORDER BY created_at DESC'),
             {'incident_id': incident_id},
         ).mappings().all()
-        return [dict(r) for r in rows]
+        return _mapping_list(rows)
 
 
+# -----------------------------
+# Enrichment / artifacts
+# -----------------------------
 def insert_ai_request(
     incident_id: str,
     workload_type: str,
@@ -391,7 +442,7 @@ def insert_ai_request(
                 'retrieval_refs': json.dumps(retrieval_refs),
                 'redaction_manifest': json.dumps({}),
                 'outbound_prompt_hash': prompt_hash,
-                'outbound_prompt': json.dumps(prompt_body),
+                'outbound_prompt': json.dumps(_clean_value(prompt_body)),
                 'initiating_service_identity': 'intelligence-service',
             },
         ).scalar_one()
@@ -425,13 +476,43 @@ def insert_ai_response(
             ),
             {
                 'request_id': request_id,
-                'response_body': json.dumps(response_body),
+                'response_body': json.dumps(_clean_value(response_body)),
                 'schema_valid': schema_valid,
                 'validation_errors': json.dumps(validation_errors or []),
                 'latency_ms': latency_ms,
-                'token_metadata': json.dumps(token_metadata or {}),
+                'token_metadata': json.dumps(_clean_value(token_metadata or {})),
             },
         )
+
+
+def set_latest_enrichment_ref(incident_id: str, request_id: str) -> str:
+    enrichment_ref = f'ai-enrichment://{request_id}'
+    with get_session() as session:
+        session.execute(
+            text(
+                """
+                UPDATE candidate_incidents
+                SET enrichment_ref = :enrichment_ref,
+                    updated_at = now()
+                WHERE incident_id = :incident_id
+                """
+            ),
+            {'incident_id': incident_id, 'enrichment_ref': enrichment_ref},
+        )
+        session.execute(
+            text(
+                """
+                INSERT INTO incident_artifacts (incident_id, artifact_type, artifact_ref, artifact_metadata, created_by)
+                VALUES (:incident_id, 'ai_enrichment_response', :artifact_ref, CAST(:artifact_metadata AS jsonb), 'intelligence-service')
+                """
+            ),
+            {
+                'incident_id': incident_id,
+                'artifact_ref': enrichment_ref,
+                'artifact_metadata': json.dumps({'request_id': request_id}),
+            },
+        )
+    return enrichment_ref
 
 
 def list_ai_responses_for_incident(incident_id: str) -> list[dict[str, Any]]:
@@ -439,7 +520,7 @@ def list_ai_responses_for_incident(incident_id: str) -> list[dict[str, Any]]:
         rows = session.execute(
             text(
                 """
-                SELECT r.*, q.incident_id, q.model_id, q.route_used, q.requested_at
+                SELECT r.*, q.incident_id, q.model_id, q.route_used, q.requested_at, q.request_id
                 FROM ai_enrichment_responses r
                 JOIN ai_enrichment_requests q ON q.request_id = r.request_id
                 WHERE q.incident_id = :incident_id
@@ -448,4 +529,30 @@ def list_ai_responses_for_incident(incident_id: str) -> list[dict[str, Any]]:
             ),
             {'incident_id': incident_id},
         ).mappings().all()
-        return [dict(r) for r in rows]
+        return _mapping_list(rows)
+
+
+def get_latest_ai_response_for_incident(incident_id: str) -> dict[str, Any] | None:
+    rows = list_ai_responses_for_incident(incident_id)
+    return rows[0] if rows else None
+
+
+# -----------------------------
+# Demo helpers
+# -----------------------------
+def clear_demo_data() -> None:
+    with get_session() as session:
+        for statement in [
+            'DELETE FROM incident_artifacts',
+            'DELETE FROM ai_enrichment_responses',
+            'DELETE FROM ai_enrichment_requests',
+            'DELETE FROM review_actions',
+            'DELETE FROM incident_event_links',
+            'DELETE FROM candidate_incidents',
+            'DELETE FROM risk_context_refs',
+            'DELETE FROM canonical_events',
+            'DELETE FROM raw_events',
+            'DELETE FROM service_context',
+            'DELETE FROM audit_log',
+        ]:
+            session.execute(text(statement))

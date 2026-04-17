@@ -11,9 +11,9 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.common.config import get_settings
-from app.common.repository import get_incident, insert_ai_request, insert_ai_response
+from app.common.repository import get_incident, insert_ai_request, insert_ai_response, set_latest_enrichment_ref
 
-app = FastAPI(title='Resilience Intelligence Service', version='0.4.2')
+app = FastAPI(title='Resilience Intelligence Service', version='0.5.0')
 settings = get_settings()
 BASE_DIR = Path(__file__).resolve().parents[2]
 REFERENCE_DIR = BASE_DIR / 'reference'
@@ -35,13 +35,7 @@ def health() -> dict[str, str]:
 @app.post('/incidents/{incident_id}/enrich')
 def enrich_incident(incident_id: str) -> dict:
     try:
-        print(f"[DEBUG] enrich_incident called for {incident_id}")
-        print(f"[DEBUG] LLM model = {settings.llm_model}")
-        print(f"[DEBUG] LLM URL = {settings.llm_base_url.rstrip('/')}{settings.llm_chat_path}")
-
         incident = get_incident(incident_id)
-        print(f"[DEBUG] incident = {incident}")
-
         if not incident:
             raise HTTPException(status_code=404, detail='Incident not found')
 
@@ -62,13 +56,10 @@ def enrich_incident(incident_id: str) -> dict:
             prompt_body=prompt_package,
             route_used='lmstudio-openai',
         )
-        print(f"[DEBUG] request_id = {request_id}")
 
         started = time.perf_counter()
         response_json, token_metadata = call_lmstudio(prompt_package)
         latency_ms = int((time.perf_counter() - started) * 1000)
-
-        print(f"[DEBUG] response_json = {response_json}")
 
         required_keys = [
             'summary',
@@ -88,10 +79,12 @@ def enrich_incident(incident_id: str) -> dict:
             validation_errors=validation_errors,
             token_metadata=token_metadata,
         )
+        enrichment_ref = set_latest_enrichment_ref(incident_id, request_id)
 
         return {
             'request_id': request_id,
             'schema_valid': schema_valid,
+            'enrichment_ref': enrichment_ref,
             'response': response_json,
         }
 
@@ -142,6 +135,7 @@ def build_prompt_package(incident: dict) -> tuple[dict, list[str]]:
             'current_status': incident.get('status'),
             'confidence_score': incident.get('confidence_score'),
             'draft_severity': incident.get('draft_severity'),
+            'linked_events': incident.get('linked_events', []),
         },
         'retrieved_evidence': {
             'prior_incidents': prior,

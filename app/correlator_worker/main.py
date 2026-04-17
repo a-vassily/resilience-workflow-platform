@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-import json
+import os
+import time
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -16,18 +17,23 @@ from app.common.repository import (
     mark_canonical_events_processed,
 )
 
-BASE_DIR = Path(__file__).resolve().parents[2]
-RULES_PATH = BASE_DIR / 'rules' / 'correlation_rules.yaml'
+RULES_PATH = Path(__file__).resolve().parents[2] / 'rules' / 'correlation_rules.yaml'
 
 
 def run_once() -> int:
-    events = list_unprocessed_canonical_events()
-    if not events:
+    if _loop_enabled('CORRELATOR_LOOP'):
+        return _run_loop()
+    return _run_batch()
+
+
+def _run_batch() -> int:
+    rows = list_unprocessed_canonical_events()
+    if not rows:
         return 0
 
-    grouped = defaultdict(list)
-    for event in events:
-        key = event.get('linked_service') or event.get('vendor_reference') or 'unassigned'
+    grouped: dict[str, list[dict]] = defaultdict(list)
+    for event in rows:
+        key = event.get('linked_service') or event.get('affected_asset') or event.get('vendor_reference') or 'ungrouped'
         grouped[key].append(event)
 
     rules = yaml.safe_load(RULES_PATH.read_text(encoding='utf-8'))['rules']
@@ -116,6 +122,24 @@ def run_once() -> int:
     if processed_ids:
         mark_canonical_events_processed(processed_ids)
     return created
+
+
+def _run_loop() -> int:
+    total = 0
+    sleep_seconds = float(os.getenv('CORRELATOR_POLL_SECONDS', '5'))
+    max_cycles = int(os.getenv('CORRELATOR_MAX_CYCLES', '0'))
+    cycles = 0
+    while True:
+        processed = _run_batch()
+        total += processed
+        cycles += 1
+        if max_cycles and cycles >= max_cycles:
+            return total
+        time.sleep(sleep_seconds)
+
+
+def _loop_enabled(env_name: str) -> bool:
+    return os.getenv(env_name, 'false').strip().lower() in {'1', 'true', 'yes', 'on'}
 
 
 def _matches(rule: dict, event_types: set[str], tags: set[str], context: dict, service_events: list[dict]) -> bool:

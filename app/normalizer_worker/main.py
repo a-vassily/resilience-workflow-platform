@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import time
 from datetime import datetime, timezone
 from typing import Any
 
@@ -7,6 +9,12 @@ from app.common.repository import insert_canonical_event, list_unprocessed_raw_e
 
 
 def run_once() -> int:
+    if _loop_enabled('NORMALIZER_LOOP'):
+        return _run_loop()
+    return _run_batch()
+
+
+def _run_batch() -> int:
     rows = list_unprocessed_raw_events()
     count = 0
     for row in rows:
@@ -17,6 +25,24 @@ def run_once() -> int:
         mark_raw_event_normalized(str(row['id']))
         count += 1
     return count
+
+
+def _run_loop() -> int:
+    total = 0
+    sleep_seconds = float(os.getenv('NORMALIZER_POLL_SECONDS', '5'))
+    max_cycles = int(os.getenv('NORMALIZER_MAX_CYCLES', '0'))
+    cycles = 0
+    while True:
+        processed = _run_batch()
+        total += processed
+        cycles += 1
+        if max_cycles and cycles >= max_cycles:
+            return total
+        time.sleep(sleep_seconds)
+
+
+def _loop_enabled(env_name: str) -> bool:
+    return os.getenv(env_name, 'false').strip().lower() in {'1', 'true', 'yes', 'on'}
 
 
 def normalize_event(source_system: str, source_type: str, payload: dict[str, Any], evidence_pointer: str | None) -> dict[str, Any]:
