@@ -1,0 +1,21 @@
+{
+  "risk_ref": "RISK-005",
+  "service": "trade-booking",
+  "critical_service": true,
+  "owner": "trading_operations_team",
+  "business_process": "trade_order_lifecycle",
+  "data_classification": "highly_confidential",
+  "regulatory_relevance": [
+    "mifid2",
+    "operational_resilience",
+    "incident_reporting"
+  ],
+  "rto_minutes": 15,
+  "dependencies": [
+    "trade-execution-gateway",
+    "iam-core",
+    "postgres-prod"
+  ],
+  "risk_rating": "critical",
+  "known_risk_notes": "Real-time order flow; any outage during market hours triggers MiFID II incident clock. Vendor dependency on trade-execution-gateway is single-point; no fallback path approved."
+}

@@ -1,0 +1,17 @@
+{
+  "alert_id": "TEL-7019",
+  "timestamp": "2026-04-16T01:29:00Z",
+  "tool": "grafana",
+  "alert_name": "Token Issuance Failure Rate High",
+  "service": "iam-core",
+  "asset": "iam-vault-02",
+  "metric": "iam.token_issuance.failure_rate",
+  "current_value": 31.2,
+  "threshold": 2.0,
+  "unit": "percent",
+  "labels": {
+    "env": "prod",
+    "namespace": "iam",
+    "auth_method": "oauth2"
+  }
+}

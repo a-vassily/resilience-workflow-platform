@@ -1,0 +1,13 @@
+{
+  "vendor_event_id": "VEND-3006",
+  "timestamp": "2026-04-16T01:30:00Z",
+  "vendor_name": "identity-verification-svc",
+  "status": "degraded",
+  "impacted_services": [
+    "iam-core"
+  ],
+  "latency_ms_p95": 4100,
+  "error_rate_percent": 18.7,
+  "status_page_reference": "https://status.example.vendor/incidents/3006",
+  "declared_severity": "major"
+}

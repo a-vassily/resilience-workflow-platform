@@ -5,6 +5,76 @@
     "critical_service": true,
     "owner": "application_support_team",
     "business_process": "portfolio_management",
-    "dependencies": ["market-data-gateway", "iam-core", "postgres-prod"]
+    "data_classification": "confidential",
+    "regulatory_relevance": ["operational_resilience", "incident_reporting"],
+    "rto_minutes": 60,
+    "risk_rating": "high",
+    "dependencies": ["market-data-gateway", "iam-core", "postgres-prod"],
+    "known_risk_notes": "Dependency on market-data-gateway is a single point of failure for real-time pricing. No read-replica or circuit-breaker pattern is currently implemented. Privileged access to portfolio processing nodes is controlled through iam-core PAM integration."
+  },
+  {
+    "risk_ref": "RISK-002",
+    "service": "client-reporting",
+    "critical_service": true,
+    "owner": "reporting_ops_team",
+    "business_process": "client_reporting",
+    "data_classification": "confidential",
+    "regulatory_relevance": ["client_reporting", "operational_resilience", "data_protection"],
+    "rto_minutes": 120,
+    "risk_rating": "high",
+    "dependencies": ["statement-renderer-saas", "document-store", "sso-gateway"],
+    "known_risk_notes": "statement-renderer-saas is a third-party SaaS vendor with no contractual failover SLA. Disk saturation on rep-db-01 has caused backup failures historically. Service account svc-reporting has broad read access to client data and is a high-value target. Output staging on document-store is not replicated — a storage failure during rendering would require full reprocessing."
+  },
+  {
+    "risk_ref": "RISK-003",
+    "service": "nav-batch",
+    "critical_service": true,
+    "owner": "fund_accounting_ops",
+    "business_process": "nav_calculation",
+    "data_classification": "confidential",
+    "regulatory_relevance": ["fund_accounting", "operational_resilience", "regulatory_reporting"],
+    "rto_minutes": 180,
+    "risk_rating": "high",
+    "dependencies": ["pricing-feed-hub", "queue-broker", "batch-workers"],
+    "known_risk_notes": "NAV calculation failure has direct regulatory consequences for fund reporting deadlines. pricing-feed-hub has experienced two latency incidents in the past 12 months. queue-broker is a shared resource — contention from other workloads can delay batch job distribution. Worker restart storms under memory pressure have been the most frequent failure mode."
+  },
+  {
+    "risk_ref": "RISK-004",
+    "service": "iam-core",
+    "critical_service": true,
+    "owner": "identity_team",
+    "business_process": "access_management",
+    "data_classification": "confidential",
+    "regulatory_relevance": ["security", "operational_resilience", "access_control"],
+    "rto_minutes": 30,
+    "risk_rating": "critical",
+    "dependencies": ["directory-core", "pam-vault", "sso-gateway"],
+    "known_risk_notes": "iam-core is a shared dependency across the entire production estate. Its failure cascades into authentication failures for all services that depend on sso-gateway. Break-glass account usage bypasses normal authorisation controls — each use must be individually reviewed. PAM vault rotation failures have previously left break-glass credentials stale for extended windows without detection."
+  },
+  {
+    "risk_ref": "RISK-005",
+    "service": "trade-booking",
+    "critical_service": true,
+    "owner": "trading_operations_team",
+    "business_process": "trade_order_lifecycle",
+    "data_classification": "highly_confidential",
+    "regulatory_relevance": ["mifid2", "operational_resilience", "incident_reporting"],
+    "rto_minutes": 15,
+    "risk_rating": "critical",
+    "dependencies": ["trade-execution-gateway", "iam-core", "postgres-prod"],
+    "known_risk_notes": "Real-time order flow; any outage during market hours triggers MiFID II incident clock. Vendor dependency on trade-execution-gateway is single-point; no fallback path approved. trade-admin account has direct database access — a credential compromise would allow access to pre-publication order flow."
+  },
+  {
+    "risk_ref": "RISK-006",
+    "service": "compliance-api",
+    "critical_service": true,
+    "owner": "compliance_technology_team",
+    "business_process": "regulatory_reporting_and_monitoring",
+    "data_classification": "confidential",
+    "regulatory_relevance": ["emir", "operational_resilience", "incident_reporting"],
+    "rto_minutes": 30,
+    "risk_rating": "high",
+    "dependencies": ["external-data-feed", "iam-core", "postgres-prod"],
+    "known_risk_notes": "Feeds regulatory submissions. Degraded external-data-feed vendor causes stale data in EMIR reports. compliance-admin account has broad read access to regulatory data — privileged access anomalies on this account carry elevated risk. Repeated failed logins flagged in last audit cycle."
   }
 ]

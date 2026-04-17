@@ -11,7 +11,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.common.config import get_settings
-from app.common.repository import get_incident, insert_ai_request, insert_ai_response, set_latest_enrichment_ref
+from app.common.repository import get_incident, insert_ai_request, insert_ai_response, insert_audit_event, set_latest_enrichment_ref
 
 app = FastAPI(title='Resilience Intelligence Service', version='0.5.0')
 settings = get_settings()
@@ -80,6 +80,21 @@ def enrich_incident(incident_id: str) -> dict:
             token_metadata=token_metadata,
         )
         enrichment_ref = set_latest_enrichment_ref(incident_id, request_id)
+        try:
+            insert_audit_event(
+                entity_type='incident',
+                entity_id=incident_id,
+                action_type='incident.enrichment.completed',
+                actor='intelligence-service',
+                details={
+                    'request_id': request_id,
+                    'schema_valid': schema_valid,
+                    'latency_ms': latency_ms,
+                    'route_used': 'lmstudio-openai',
+                },
+            )
+        except Exception:
+            pass
 
         return {
             'request_id': request_id,

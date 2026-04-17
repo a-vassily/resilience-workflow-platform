@@ -485,6 +485,36 @@ def insert_ai_response(
         )
 
 
+def set_reporting_pack_ref(incident_id: str, ref: str) -> None:
+    with get_session() as session:
+        session.execute(
+            text(
+                """
+                UPDATE candidate_incidents
+                SET reporting_pack_ref = :ref,
+                    updated_at = now()
+                WHERE incident_id = :incident_id
+                """
+            ),
+            {'incident_id': incident_id, 'ref': ref},
+        )
+
+
+def set_incident_pack_ref(incident_id: str, ref: str) -> None:
+    with get_session() as session:
+        session.execute(
+            text(
+                """
+                UPDATE candidate_incidents
+                SET incident_pack_ref = :ref,
+                    updated_at = now()
+                WHERE incident_id = :incident_id
+                """
+            ),
+            {'incident_id': incident_id, 'ref': ref},
+        )
+
+
 def set_latest_enrichment_ref(incident_id: str, request_id: str) -> str:
     enrichment_ref = f'ai-enrichment://{request_id}'
     with get_session() as session:
@@ -535,6 +565,127 @@ def list_ai_responses_for_incident(incident_id: str) -> list[dict[str, Any]]:
 def get_latest_ai_response_for_incident(incident_id: str) -> dict[str, Any] | None:
     rows = list_ai_responses_for_incident(incident_id)
     return rows[0] if rows else None
+
+
+# -----------------------------
+# Audit log
+# -----------------------------
+def insert_audit_event(
+    entity_type: str,
+    entity_id: str,
+    action_type: str,
+    actor: str | None,
+    details: dict[str, Any] | None = None,
+) -> None:
+    with get_session() as session:
+        session.execute(
+            text(
+                """
+                INSERT INTO audit_log (entity_type, entity_id, action_type, actor, details)
+                VALUES (:entity_type, :entity_id, :action_type, :actor, CAST(:details AS jsonb))
+                """
+            ),
+            {
+                'entity_type': entity_type,
+                'entity_id': entity_id,
+                'action_type': action_type,
+                'actor': actor,
+                'details': json.dumps(_clean_value(details or {})),
+            },
+        )
+
+
+def list_audit_events(entity_type: str, entity_id: str) -> list[dict[str, Any]]:
+    with get_session() as session:
+        rows = session.execute(
+            text(
+                """
+                SELECT id, entity_type, entity_id, action_type, actor, details, created_at
+                FROM audit_log
+                WHERE entity_type = :entity_type AND entity_id = :entity_id
+                ORDER BY created_at ASC
+                """
+            ),
+            {'entity_type': entity_type, 'entity_id': entity_id},
+        ).mappings().all()
+        return _mapping_list(rows)
+
+
+# -----------------------------
+# Remediation actions
+# -----------------------------
+def insert_remediation_action(
+    incident_id: str,
+    title: str,
+    description: str | None,
+    owner: str | None,
+    due_date: str | None,
+    dependency_note: str | None,
+) -> str:
+    with get_session() as session:
+        result = session.execute(
+            text(
+                """
+                INSERT INTO remediation_actions (
+                    incident_id, title, description, owner, due_date, dependency_note, status
+                ) VALUES (
+                    :incident_id, :title, :description, :owner, :due_date, :dependency_note, 'open'
+                )
+                RETURNING remediation_id
+                """
+            ),
+            {
+                'incident_id': incident_id,
+                'title': title,
+                'description': description,
+                'owner': owner,
+                'due_date': due_date,
+                'dependency_note': dependency_note,
+            },
+        )
+        return str(result.scalar_one())
+
+
+def list_remediation_actions(incident_id: str) -> list[dict[str, Any]]:
+    with get_session() as session:
+        rows = session.execute(
+            text(
+                """
+                SELECT * FROM remediation_actions
+                WHERE incident_id = :incident_id
+                ORDER BY created_at ASC
+                """
+            ),
+            {'incident_id': incident_id},
+        ).mappings().all()
+        return _mapping_list(rows)
+
+
+def update_remediation_action(
+    remediation_id: str,
+    status: str | None,
+    closure_evidence_ref: str | None,
+    lessons_learned: str | None,
+) -> None:
+    with get_session() as session:
+        session.execute(
+            text(
+                """
+                UPDATE remediation_actions SET
+                    status = COALESCE(:status, status),
+                    closure_evidence_ref = COALESCE(:closure_evidence_ref, closure_evidence_ref),
+                    lessons_learned = COALESCE(:lessons_learned, lessons_learned),
+                    updated_at = now()
+                WHERE remediation_id = :remediation_id
+                """
+            ),
+            {
+                'remediation_id': remediation_id,
+                'status': status,
+                'closure_evidence_ref': closure_evidence_ref,
+                'lessons_learned': lessons_learned,
+            },
+        )
 
 
 # -----------------------------

@@ -1,0 +1,13 @@
+{
+  "vendor_event_id": "VEND-3004",
+  "timestamp": "2026-04-17T09:07:00Z",
+  "vendor_name": "trade-execution-gateway",
+  "status": "outage",
+  "impacted_services": [
+    "trade-booking"
+  ],
+  "latency_ms_p95": 8900,
+  "error_rate_percent": 42.1,
+  "status_page_reference": "https://status.example.vendor/incidents/3004",
+  "declared_severity": "critical"
+}

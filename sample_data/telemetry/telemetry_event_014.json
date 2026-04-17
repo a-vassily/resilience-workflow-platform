@@ -1,0 +1,17 @@
+{
+  "alert_id": "TEL-7014",
+  "timestamp": "2026-04-15T09:22:30Z",
+  "tool": "grafana",
+  "alert_name": "CPU Saturation on Production Host",
+  "service": "portfolio-api",
+  "asset": "srv-ops-18",
+  "metric": "system.cpu.usage",
+  "current_value": 98.1,
+  "threshold": 85.0,
+  "unit": "percent",
+  "labels": {
+    "env": "prod",
+    "namespace": "portfolio",
+    "process": "portfolio-api"
+  }
+}

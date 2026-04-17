@@ -1,0 +1,23 @@
+{
+  "timestamp": "2026-04-17T09:12:00Z",
+  "webhookEvent": "jira:issue_created",
+  "issue": {
+    "key": "TRADE-204",
+    "fields": {
+      "project": {
+        "key": "trade-booking"
+      },
+      "priority": {
+        "name": "Critical"
+      },
+      "status": {
+        "name": "Open"
+      },
+      "issuetype": {
+        "name": "Incident"
+      },
+      "customfield_service": "trade-booking",
+      "summary": "Trade order submission failures — possible data exfiltration in progress"
+    }
+  }
+}

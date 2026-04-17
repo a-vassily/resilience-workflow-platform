@@ -1,0 +1,14 @@
+{
+  "event_id": "IAM-5800",
+  "timestamp": "2026-04-17T09:06:00Z",
+  "system": "cyberark",
+  "event_type": "impossible_travel_admin_login",
+  "account": "trade-admin",
+  "target_asset": "trade-db-01",
+  "service": "trade-booking",
+  "geo_from": "Luxembourg",
+  "geo_to": "Singapore",
+  "travel_minutes": 18,
+  "risk_score": 90,
+  "api_reference": "/api/pam/events/IAM-5800"
+}

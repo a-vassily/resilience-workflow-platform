@@ -1,0 +1,16 @@
+{
+  "alert_id": "TEL-7010",
+  "timestamp": "2026-04-17T09:08:30Z",
+  "tool": "grafana",
+  "alert_name": "Service Error Rate Spike",
+  "service": "trade-booking",
+  "asset": "trade-srv-01",
+  "metric": "http_5xx_rate",
+  "current_value": 28.4,
+  "threshold": 5.0,
+  "unit": "percent",
+  "labels": {
+    "env": "prod",
+    "namespace": "trading"
+  }
+}

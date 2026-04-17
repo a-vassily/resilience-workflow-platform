@@ -18,12 +18,16 @@ def _run_batch() -> int:
     rows = list_unprocessed_raw_events()
     count = 0
     for row in rows:
-        canonical = normalize_event(row['source_system'], row['source_type'], row['payload'], row.get('evidence_pointer'))
-        insert_canonical_event(canonical, str(row['id']))
-        if canonical['source_type'] == 'risk_context':
-            upsert_service_context(row['payload'])
-        mark_raw_event_normalized(str(row['id']))
-        count += 1
+        try:
+            canonical = normalize_event(row['source_system'], row['source_type'], row['payload'], row.get('evidence_pointer'))
+            insert_canonical_event(canonical, str(row['id']))
+            if canonical['source_type'] == 'risk_context':
+                upsert_service_context(row['payload'])
+            count += 1
+        except Exception as exc:
+            print(f"[normalizer] skipping raw event {row['id']} (source_type={row['source_type']}): {exc}")
+        finally:
+            mark_raw_event_normalized(str(row['id']))
     return count
 
 

@@ -1,0 +1,12 @@
+{
+  "event_id": "IAM-5700",
+  "timestamp": "2026-04-16T01:25:00Z",
+  "system": "cyberark",
+  "event_type": "privileged_group_change",
+  "account": "svc-pam-admin",
+  "target_asset": "iam-vault-02",
+  "service": "iam-core",
+  "change_description": "Account added to domain-admins group outside change window",
+  "risk_score": 82,
+  "api_reference": "/api/pam/events/IAM-5700"
+}

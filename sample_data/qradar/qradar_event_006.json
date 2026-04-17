@@ -1,0 +1,14 @@
+{
+  "offense_id": "QR-9500",
+  "event_time": "2026-04-17T09:05:00Z",
+  "event_name": "Failed Privileged Login",
+  "severity": 7,
+  "asset_hostname": "trade-srv-01",
+  "service": "trade-booking",
+  "user_account": "trade-admin",
+  "src_ip": "10.30.4.21",
+  "dst_ip": "10.30.4.10",
+  "category": "authentication_failure",
+  "tags": ["privileged", "authentication", "security"],
+  "raw_reference": "/api/siem/events/QR-9500"
+}

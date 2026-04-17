@@ -1,0 +1,17 @@
+{
+  "alert_id": "TEL-7016",
+  "timestamp": "2026-04-17T14:14:00Z",
+  "tool": "datadog",
+  "alert_name": "Regulatory Data Feed Timeout",
+  "service": "compliance-api",
+  "asset": "comp-srv-01",
+  "metric": "external_feed.timeout_count",
+  "current_value": 47,
+  "threshold": 3,
+  "unit": "count_per_minute",
+  "labels": {
+    "env": "prod",
+    "namespace": "compliance",
+    "feed": "external-data-feed"
+  }
+}

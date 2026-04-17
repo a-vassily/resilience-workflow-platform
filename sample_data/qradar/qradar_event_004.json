@@ -1,0 +1,14 @@
+{
+  "offense_id": "QR-9300",
+  "event_time": "2026-04-16T01:28:00Z",
+  "event_name": "Suspicious Admin Session Detected",
+  "severity": 8,
+  "asset_hostname": "iam-vault-02",
+  "service": "iam-core",
+  "user_account": "svc-pam-admin",
+  "src_ip": "10.55.9.41",
+  "dst_ip": "10.55.2.12",
+  "category": "admin_session",
+  "tags": ["privileged", "admin_activity", "security"],
+  "raw_reference": "/api/siem/events/QR-9300"
+}

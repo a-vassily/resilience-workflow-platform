@@ -1,0 +1,14 @@
+{
+  "offense_id": "QR-9400",
+  "event_time": "2026-04-15T09:17:00Z",
+  "event_name": "Malware Detected on Production Host",
+  "severity": 9,
+  "asset_hostname": "srv-ops-18",
+  "service": "portfolio-api",
+  "user_account": "system",
+  "src_ip": "10.20.14.9",
+  "dst_ip": "198.51.100.55",
+  "category": "malware",
+  "tags": ["security", "malware", "critical_service"],
+  "raw_reference": "/api/siem/events/QR-9400"
+}

@@ -12,6 +12,7 @@ import yaml
 from app.common.repository import (
     create_candidate_incident,
     get_service_context,
+    insert_audit_event,
     link_incident_events,
     list_unprocessed_canonical_events,
     mark_canonical_events_processed,
@@ -19,6 +20,17 @@ from app.common.repository import (
 
 RULES_PATH = Path(__file__).resolve().parents[2] / 'rules' / 'correlation_rules.yaml'
 SEVERITY_ORDER = {'info': 0, 'low': 1, 'medium': 2, 'high': 3, 'critical': 4}
+
+_SECURITY_EVENT_TYPES = frozenset([
+    'failed_privileged_access',
+    'repeated_failed_privileged_access',
+    'impossible_travel_admin_login',
+    'data_exfiltration_alert',
+    'break_glass_account_used',
+    'suspicious_admin_session',
+    'malware_detected',
+    'privileged_group_change',
+])
 
 
 def run_once() -> int:
@@ -69,7 +81,7 @@ def _run_batch() -> int:
             'vendor_name': next((e.get('vendor_reference') for e in group_events if e.get('vendor_reference')), None),
             'threshold_flags': {
                 'critical_service_impact': bool(context.get('critical_service', False)),
-                'unauthorized_access_indicator': any(e['event_type'] in ['failed_privileged_access', 'repeated_failed_privileged_access', 'impossible_travel_admin_login'] for e in group_events),
+                'unauthorized_access_indicator': any(e['event_type'] in _SECURITY_EVENT_TYPES for e in group_events),
                 'multi_signal_pattern': len(group_events) >= 2,
                 'vendor_dependency_issue': any(e['source_type'] == 'vendor_event' for e in group_events),
                 'platform_instability': any(e['event_type'] in ['pod_restart_storm', 'cpu_saturation', 'memory_pressure'] for e in group_events),
@@ -87,7 +99,7 @@ def _run_batch() -> int:
             'classification_support': {
                 'threshold_flags': {
                     'critical_service_impact': bool(context.get('critical_service', False)),
-                    'unauthorized_access_indicator': any(e['event_type'] in ['failed_privileged_access', 'repeated_failed_privileged_access', 'impossible_travel_admin_login'] for e in group_events),
+                    'unauthorized_access_indicator': any(e['event_type'] in _SECURITY_EVENT_TYPES for e in group_events),
                 },
                 'draft_severity': draft_severity,
                 'matched_rule_count': len(rule_hits),
@@ -122,6 +134,22 @@ def _run_batch() -> int:
         }
         create_candidate_incident(incident)
         link_incident_events(incident_id, [e['event_id'] for e in group_events])
+        try:
+            insert_audit_event(
+                entity_type='incident',
+                entity_id=incident_id,
+                action_type='incident.created',
+                actor='correlator-worker',
+                details={
+                    'rule_hits': rule_hits,
+                    'service_name': service_name,
+                    'confidence_score': round(best_score, 4),
+                    'draft_severity': draft_severity,
+                    'event_count': len(group_events),
+                },
+            )
+        except Exception:
+            pass
         processed_ids.extend([e['event_id'] for e in group_events])
         created += 1
 

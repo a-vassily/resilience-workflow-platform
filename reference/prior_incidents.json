@@ -2,6 +2,66 @@
   {
     "incident_id": "inc-2025-00491",
     "service": "portfolio-api",
-    "summary": "Dependency degradation caused elevated API error rates and delayed processing."
+    "summary": "market-data-gateway degradation caused elevated API error rates and delayed portfolio valuation processing. Root cause was vendor-side connection pool exhaustion. Application-layer retries amplified the error rate. Resolved after vendor restored stable latency; no data loss but SLA breach required internal reporting."
+  },
+  {
+    "incident_id": "inc-2025-00614",
+    "service": "portfolio-api",
+    "summary": "Repeated failed privileged access attempts on srv-ops-17 coincided with a market-data-gateway latency spike. Initial investigation treated both as independent. Post-incident review identified they occurred within the same 10-minute window and should have been correlated earlier. Privileged access investigation found no active compromise; access account was suspended pending review. Dependency issue resolved independently."
+  },
+  {
+    "incident_id": "inc-2025-00312",
+    "service": "client-reporting",
+    "summary": "statement-renderer-saas outage caused a 4-hour statement generation backlog. No data loss but output SLA was breached for 340 client accounts. Vendor restored service; backlog cleared within 2 hours of recovery. Incident required internal operational resilience report. Identified gap: no vendor failover path for PDF rendering."
+  },
+  {
+    "incident_id": "inc-2025-00589",
+    "service": "client-reporting",
+    "summary": "Disk saturation on rep-db-01 caused backup failures for 3 consecutive nights before detection. Root cause was unrotated statement output logs accumulating in the output staging directory. No primary data was lost but the backup gap created a recovery risk. Remediated by adding disk usage alerting and a log rotation policy. Post-incident review noted that backup failure and disk saturation alerts were both present but were not correlated into a single incident."
+  },
+  {
+    "incident_id": "inc-2025-00701",
+    "service": "client-reporting",
+    "summary": "Impossible-travel alert for svc-reporting account was confirmed as credential misuse. The service account credentials had been exfiltrated via a phishing attack on a third-party contractor. Account was suspended, access logs reviewed, and affected outputs audited. Incident was classified as a reportable security incident under operational resilience requirements. The concurrent statement-renderer-saas degradation during the same window complicated early triage."
+  },
+  {
+    "incident_id": "inc-2025-00418",
+    "service": "nav-batch",
+    "summary": "pricing-feed-hub latency spike to 6800ms p95 caused batch workers to exhaust their connection timeout and restart repeatedly. Queue backlog reached 18,500 messages. NAV calculation was delayed by 3.5 hours. Resolved after vendor restored feed latency. Post-incident: worker timeout configuration was adjusted to fail-fast rather than retry-and-hold to prevent future restart storms under degraded upstream conditions."
+  },
+  {
+    "incident_id": "inc-2025-00620",
+    "service": "nav-batch",
+    "summary": "Queue backlog reached 22,000 messages during a concurrent restart storm triggered by a Kubernetes node upgrade that caused memory pressure on batch-node-02. Root cause was the upgrade scheduler running during the NAV calculation window. No pricing data was lost but NAV outputs were delayed 2 hours. Post-incident: maintenance windows for batch nodes are now prohibited during the overnight NAV calculation period."
+  },
+  {
+    "incident_id": "inc-2025-00201",
+    "service": "iam-core",
+    "summary": "Break-glass account used by a contractor without prior authorisation during a weekend maintenance window. Event was investigated within 40 minutes of detection. No unauthorised access to production data was identified. Classified as a procedural breach rather than external compromise. Access policy updated to require pre-authorisation tickets for all break-glass use. PAM audit trail was complete and supported the investigation."
+  },
+  {
+    "incident_id": "inc-2025-00511",
+    "service": "iam-core",
+    "summary": "PAM vault credential rotation failure caused break-glass credentials to be stale for 8 hours before detection. The rotation job had silently failed due to a misconfigured service account. No access misuse was identified during the exposure window. Remediated by adding rotation job monitoring and alerting on rotation failures. Post-incident: break-glass credential staleness is now checked on a 4-hour schedule."
+  },
+  {
+    "incident_id": "inc-2025-00733",
+    "service": "trade-booking",
+    "summary": "trade-execution-gateway declared a major incident causing order submission error rates to spike to 35%. Concurrent QRadar alert for data exfiltration on trade-db-01 was initially treated as a false positive due to the vendor incident focus. Post-incident review found the exfiltration alert and an impossible-travel event on trade-admin were genuine and occurred within 3 minutes of each other during the vendor outage. The outage created a monitoring gap that delayed detection. Classified as a reportable incident under MiFID II operational resilience requirements."
+  },
+  {
+    "incident_id": "inc-2025-00748",
+    "service": "trade-booking",
+    "summary": "Break-glass account breakglass-admin used to access trade-db-01 without prior authorisation during a Saturday maintenance window. The access was investigated within 22 minutes. A CyberArk alert and a QRadar alert had fired within 2 minutes of each other. No unauthorised data access was confirmed but the procedural breach was classified as an internal incident. Post-incident: trade-db-01 break-glass use now requires a linked change request."
+  },
+  {
+    "incident_id": "inc-2025-00621",
+    "service": "compliance-api",
+    "summary": "external-data-feed degradation caused stale reference data to be used in EMIR trade reports for a 2-hour window. The compliance team was alerted by an internal data quality check rather than automated monitoring. Concurrent repeated failed login attempts by compliance-admin were investigated separately and attributed to a misconfigured automated process. Post-incident: external-data-feed data freshness is now a monitored SLA metric. Privileged access anomalies during vendor incidents are now flagged for joint review."
+  },
+  {
+    "incident_id": "inc-2025-00689",
+    "service": "compliance-api",
+    "summary": "Repeated failed privileged access attempts on comp-srv-01 by compliance-admin account triggered a CyberArk alert after 9 failures in 4 minutes. Concurrent QRadar alert for suspicious admin session on the same asset was investigated independently by the SOC team. Post-incident review determined both alerts referenced the same session. The dual-alert pattern was not correlated by the SIEM. Classified as a high-risk identity event; account was suspended for review. No data exfiltration confirmed but investigation required 3 days of log review."
   }
 ]

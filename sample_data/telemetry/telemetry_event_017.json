@@ -1,0 +1,17 @@
+{
+  "alert_id": "TEL-7017",
+  "timestamp": "2026-04-16T01:26:00Z",
+  "tool": "grafana",
+  "alert_name": "PAM Session Count Anomaly",
+  "service": "iam-core",
+  "asset": "iam-vault-02",
+  "metric": "pam.active_sessions",
+  "current_value": 34,
+  "threshold": 10,
+  "unit": "sessions",
+  "labels": {
+    "env": "prod",
+    "namespace": "iam",
+    "session_type": "privileged"
+  }
+}

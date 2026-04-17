@@ -1,0 +1,16 @@
+{
+  "alert_id": "TEL-7013",
+  "timestamp": "2026-04-16T01:27:00Z",
+  "tool": "datadog",
+  "alert_name": "IAM Vault Response Time Critical",
+  "service": "iam-core",
+  "asset": "iam-vault-02",
+  "metric": "vault.request_latency_ms",
+  "current_value": 6200,
+  "threshold": 800,
+  "unit": "ms",
+  "labels": {
+    "env": "prod",
+    "namespace": "iam"
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "offense_id": "QR-9700",
+  "event_time": "2026-04-17T09:08:00Z",
+  "event_name": "Data Exfiltration Alert - Large Outbound Transfer",
+  "severity": 9,
+  "asset_hostname": "trade-db-01",
+  "service": "trade-booking",
+  "user_account": "trade-admin",
+  "src_ip": "10.30.4.15",
+  "dst_ip": "185.220.101.42",
+  "category": "data_exfiltration",
+  "tags": ["security", "egress", "sensitive_data", "trading"],
+  "raw_reference": "/api/siem/events/QR-9700"
+}

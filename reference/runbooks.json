@@ -2,6 +2,31 @@
   {
     "id": "rb-001",
     "service": "portfolio-api",
-    "excerpt": "Validate whether retries from a degraded dependency are amplifying service instability before escalating."
+    "excerpt": "portfolio-api depends on market-data-gateway for real-time pricing feeds and on iam-core for access control. When market-data-gateway latency exceeds 1500ms p95, application-layer retries amplify error rates non-linearly — validate dependency health before scaling pods. If a privileged access anomaly and vendor degradation coincide, treat the combination as a potential supply-chain or account-compromise scenario rather than independent faults. Escalate to security if QRadar and CyberArk both produce alerts for the same account within the same 15-minute window."
+  },
+  {
+    "id": "rb-002",
+    "service": "client-reporting",
+    "excerpt": "client-reporting produces regulatory and client-facing account statements. It depends on statement-renderer-saas for PDF generation and on document-store for output staging. When statement-renderer-saas is degraded or unavailable, synthetic journey checks fail and end-to-end latency exceeds SLA thresholds. First response: check the statement-renderer-saas vendor status page. If the vendor has declared an incident, do not restart application pods — this will not resolve the dependency issue and may worsen queue backlog. Verify document-store disk usage separately: statement processing is write-intensive and storage saturation on rep-db-01 can compound a vendor outage by preventing output staging. Backup failures on the reporting database should be treated as a separate control failure requiring immediate remediation regardless of the primary incident. If an impossible-travel alert or data exfiltration alert coincides with vendor degradation, do not assume the two events are unrelated — treat the combination as a potential account-compromise scenario amplified by degraded observability and escalate to security."
+  },
+  {
+    "id": "rb-003",
+    "service": "nav-batch",
+    "excerpt": "nav-batch runs the overnight NAV calculation cycle for fund accounting. It is CPU and memory intensive and depends on pricing-feed-hub for live pricing data and on queue-broker for job distribution. A container restart storm in the nav-batch namespace typically indicates workers are OOM-crashing under load or receiving malformed or stale pricing payloads from pricing-feed-hub. First response: check pricing-feed-hub latency — elevated upstream latency causes workers to hold connections longer than their configured timeout and then restart. If queue backlog exceeds 10,000 messages, do not scale aggressively until upstream latency is confirmed stable; premature scale-out under degraded upstream conditions amplifies the restart storm. Batch job failure count is a lagging indicator: by the time failures appear, the backlog and CPU saturation will already be severe. NAV calculation failures may require same-day regulatory notification depending on the fund class — confirm with the fund accounting team before closing the incident."
+  },
+  {
+    "id": "rb-004",
+    "service": "iam-core",
+    "excerpt": "iam-core is the authoritative access management service for all production systems. Break-glass account usage must be reviewed within 30 minutes of detection — it indicates either a legitimate emergency access event or a potential account compromise. First response: confirm with the on-call operations contact whether a break-glass authorisation was issued for the relevant time window. If no prior authorisation exists, treat the event as a potential account compromise and escalate to the security team immediately. Do not wait for the next scheduled review cycle. Concurrent QRadar and CyberArk alerts for the same account and asset within the same timestamp window are a strong indicator of active threat activity rather than misconfiguration. PAM vault credential rotation failures create an undetected exposure window and should be remediated immediately regardless of whether a breach is confirmed. iam-core failure cascades into access failures across all services that depend on sso-gateway — a prolonged degradation affects the entire estate."
+  },
+  {
+    "id": "rb-005",
+    "service": "trade-booking",
+    "excerpt": "trade-booking processes real-time order submissions and is subject to MiFID II transaction reporting obligations. Its RTO is 15 minutes during market hours. The primary external dependency is trade-execution-gateway; if that vendor is unavailable or has an error rate above 10%, order submission failures will occur immediately. First response: check trade-execution-gateway status page. Do not restart trade-srv-01 pods during active vendor outage — this will interrupt in-flight order state and may cause duplicate submissions on vendor recovery. Data exfiltration alerts or impossible-travel events on trade-admin must be escalated to security immediately regardless of the primary operational incident — the trade database contains pre-publication order flow that is market-sensitive. Break-glass usage on trade-db-01 without a pre-authorised change request must be treated as a potential account compromise. Any outage lasting more than 15 minutes during market hours triggers the MiFID II incident notification clock."
+  },
+  {
+    "id": "rb-006",
+    "service": "compliance-api",
+    "excerpt": "compliance-api feeds regulatory submissions including EMIR trade reporting. Its primary vendor dependency is external-data-feed. When external-data-feed is degraded, compliance-api continues to serve requests but operates on stale reference data, which can cause invalid or duplicate regulatory reports. First response: identify whether the feed latency is within the toleranced stale window (configurable, default 15 minutes). If stale window exceeded, halt automated submission and alert the compliance technology team for manual review. Repeated failed privileged access to comp-srv-01 from the compliance-admin account outside change windows is a high-risk signal — the account has broad read access to regulatory data. If QRadar and CyberArk both produce alerts for compliance-admin within a 5-minute window, treat as a potential credential compromise and suspend the account pending investigation. Vendor degradation combined with admin session anomalies on the same service must not be treated as independent faults."
   }
 ]

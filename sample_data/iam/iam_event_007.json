@@ -1,0 +1,12 @@
+{
+  "event_id": "IAM-6000",
+  "timestamp": "2026-04-17T09:09:00Z",
+  "system": "cyberark",
+  "event_type": "pam_break_glass_used",
+  "account": "breakglass-admin",
+  "target_asset": "trade-db-01",
+  "service": "trade-booking",
+  "justification": "None provided — automated alert only",
+  "risk_score": 95,
+  "api_reference": "/api/pam/events/IAM-6000"
+}

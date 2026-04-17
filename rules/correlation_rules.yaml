@@ -109,3 +109,83 @@ rules:
             types: [service_error_rate_high, latency_spike, repeated_failed_privileged_access, vendor_degradation, incident_ticket_signal, queue_backlog_high]
             count: 3
         - same_linked_service: true
+
+  - id: RISK_CONTEXT_AMPLIFIED_CYBER
+    description: >
+      A freshly ingested risk-context record co-occurring with an active security or identity
+      anomaly on the same service. The risk context elevates the signal from a possible noise
+      event to a reviewable candidate by providing structured evidence of known exposure.
+    confidence_score: 0.72
+    draft_severity: high
+    min_events: 2
+    conditions:
+      all:
+        # Must have a risk-context event in the group (freshly imported IRM or risk register entry)
+        - source_type_any: [risk_context]
+        # Must also have a security or identity signal on the same service
+        - source_type_any: [security_event, identity_event]
+        - same_linked_service: true
+        - min_distinct_sources: 2
+
+  - id: RISK_CONTEXT_AMPLIFIED_OPERATIONAL
+    description: >
+      A freshly ingested risk-context record co-occurring with operational degradation signals
+      on the same service. Elevates a weak operational signal by pairing it with structured
+      risk evidence, making a combined candidate incident worth human review.
+    confidence_score: 0.61
+    draft_severity: medium
+    min_events: 2
+    conditions:
+      all:
+        # Must have a risk-context event in the group
+        - source_type_any: [risk_context]
+        # Must also have a telemetry or vendor degradation signal on the same service
+        - source_type_any: [telemetry_alert, vendor_event]
+        - same_linked_service: true
+        - min_distinct_sources: 2
+
+  - id: PRIVILEGED_ACCESS_WITH_IMPOSSIBLE_TRAVEL
+    description: >
+      Failed or suspicious privileged access combined with an impossible-travel identity
+      anomaly on the same service. High-confidence indicator of account compromise or
+      credential theft — the travel signal proves the account is being used from two
+      geographically incompatible locations simultaneously.
+    confidence_score: 0.87
+    draft_severity: critical
+    min_events: 2
+    conditions:
+      all:
+        - event_type_any: [failed_privileged_access, repeated_failed_privileged_access, suspicious_admin_session]
+        - event_type_any: [impossible_travel_admin_login]
+        - same_linked_service: true
+        - min_distinct_sources: 2
+
+  - id: VENDOR_OUTAGE_WITH_SERVICE_ERRORS
+    description: >
+      Vendor declared outage or critical degradation co-occurring with elevated service
+      error rates on the same linked service. Confirms vendor-induced user-facing impact
+      and distinguishes from internal faults — requiring vendor escalation rather than
+      application-layer remediation.
+    confidence_score: 0.83
+    draft_severity: high
+    min_events: 2
+    conditions:
+      all:
+        - event_type_any: [vendor_outage, vendor_degradation]
+        - event_type_any: [service_error_rate_high]
+        - same_linked_service: true
+        - vendor_present: true
+
+  - id: MALWARE_ON_CRITICAL_SERVICE
+    description: >
+      Malware detection on any asset hosting a critical service. Single-signal rule
+      with no minimum event count requirement beyond the malware alert itself. Regulatory
+      obligation and data-at-rest risk justify immediate candidate creation regardless
+      of corroborating signals.
+    confidence_score: 0.88
+    draft_severity: critical
+    min_events: 1
+    conditions:
+      all:
+        - event_type_any: [malware_detected]
+        - critical_service: true

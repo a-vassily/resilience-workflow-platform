@@ -1,0 +1,17 @@
+{
+  "alert_id": "TEL-7011",
+  "timestamp": "2026-04-17T09:09:45Z",
+  "tool": "datadog",
+  "alert_name": "Abnormal Outbound Traffic Volume",
+  "service": "trade-booking",
+  "asset": "trade-db-01",
+  "metric": "net.bytes_sent",
+  "current_value": 4812000000,
+  "threshold": 500000000,
+  "unit": "bytes",
+  "labels": {
+    "env": "prod",
+    "namespace": "trading",
+    "direction": "egress"
+  }
+}

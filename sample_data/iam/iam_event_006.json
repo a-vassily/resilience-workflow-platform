@@ -1,0 +1,13 @@
+{
+  "event_id": "IAM-5900",
+  "timestamp": "2026-04-17T14:10:00Z",
+  "system": "cyberark",
+  "event_type": "repeated_failed_privileged_access",
+  "account": "compliance-admin",
+  "target_asset": "comp-srv-01",
+  "service": "compliance-api",
+  "failure_count": 9,
+  "time_window_minutes": 4,
+  "risk_score": 72,
+  "api_reference": "/api/pam/events/IAM-5900"
+}

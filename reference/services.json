@@ -3,12 +3,60 @@
     "service_name": "portfolio-api",
     "critical_service": true,
     "owner": "application_support_team",
-    "vendor_name": "market-data-gateway"
+    "vendor_name": "market-data-gateway",
+    "business_process": "portfolio_management",
+    "rto_minutes": 60,
+    "dependencies": ["market-data-gateway", "iam-core", "postgres-prod"],
+    "escalation_contact": "application_support_lead"
+  },
+  {
+    "service_name": "client-reporting",
+    "critical_service": true,
+    "owner": "reporting_ops_team",
+    "vendor_name": "statement-renderer-saas",
+    "business_process": "client_reporting",
+    "rto_minutes": 120,
+    "dependencies": ["statement-renderer-saas", "document-store", "sso-gateway"],
+    "escalation_contact": "reporting_ops_lead"
+  },
+  {
+    "service_name": "nav-batch",
+    "critical_service": true,
+    "owner": "fund_accounting_ops",
+    "vendor_name": "pricing-feed-hub",
+    "business_process": "nav_calculation",
+    "rto_minutes": 180,
+    "dependencies": ["pricing-feed-hub", "queue-broker", "batch-workers"],
+    "escalation_contact": "fund_accounting_lead"
   },
   {
     "service_name": "iam-core",
     "critical_service": true,
     "owner": "identity_team",
-    "vendor_name": null
+    "vendor_name": null,
+    "business_process": "access_management",
+    "rto_minutes": 30,
+    "dependencies": ["directory-core", "pam-vault", "sso-gateway"],
+    "escalation_contact": "identity_security_lead"
+  },
+  {
+    "service_name": "trade-booking",
+    "critical_service": true,
+    "owner": "trading_operations_team",
+    "vendor_name": "trade-execution-gateway",
+    "business_process": "trade_order_lifecycle",
+    "rto_minutes": 15,
+    "dependencies": ["trade-execution-gateway", "iam-core", "postgres-prod"],
+    "escalation_contact": "trading_operations_lead"
+  },
+  {
+    "service_name": "compliance-api",
+    "critical_service": true,
+    "owner": "compliance_technology_team",
+    "vendor_name": "external-data-feed",
+    "business_process": "regulatory_reporting_and_monitoring",
+    "rto_minutes": 30,
+    "dependencies": ["external-data-feed", "iam-core", "postgres-prod"],
+    "escalation_contact": "compliance_technology_lead"
   }
 ]

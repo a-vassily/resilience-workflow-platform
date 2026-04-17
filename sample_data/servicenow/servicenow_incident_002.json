@@ -1,0 +1,10 @@
+{
+  "sys_id": "SNOW-9002",
+  "opened_at": "2026-04-17T14:15:00Z",
+  "caller_id": "compliance.ops",
+  "cmdb_ci": "comp-srv-01",
+  "business_service": "compliance-api",
+  "short_description": "Compliance API degraded — external data feed unavailable, repeated admin login failures",
+  "priority": "2",
+  "state": "New"
+}

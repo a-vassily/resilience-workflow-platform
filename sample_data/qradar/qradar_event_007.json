@@ -1,0 +1,14 @@
+{
+  "offense_id": "QR-9600",
+  "event_time": "2026-04-17T14:12:00Z",
+  "event_name": "Suspicious Admin Session Detected",
+  "severity": 7,
+  "asset_hostname": "comp-srv-01",
+  "service": "compliance-api",
+  "user_account": "compliance-admin",
+  "src_ip": "10.60.3.11",
+  "dst_ip": "10.60.3.10",
+  "category": "admin_session",
+  "tags": ["privileged", "admin_activity", "security"],
+  "raw_reference": "/api/siem/events/QR-9600"
+}

@@ -1,0 +1,13 @@
+{
+  "vendor_event_id": "VEND-3005",
+  "timestamp": "2026-04-17T14:11:00Z",
+  "vendor_name": "external-data-feed",
+  "status": "degraded",
+  "impacted_services": [
+    "compliance-api"
+  ],
+  "latency_ms_p95": 3800,
+  "error_rate_percent": 22.5,
+  "status_page_reference": "https://status.example.vendor/incidents/3005",
+  "declared_severity": "major"
+}

@@ -1,0 +1,17 @@
+{
+  "alert_id": "TEL-7018",
+  "timestamp": "2026-04-17T09:11:00Z",
+  "tool": "datadog",
+  "alert_name": "Order Submission Latency P99 Critical",
+  "service": "trade-booking",
+  "asset": "trade-srv-01",
+  "metric": "trade.order_submit.latency_p99_ms",
+  "current_value": 12400,
+  "threshold": 2000,
+  "unit": "ms",
+  "labels": {
+    "env": "prod",
+    "namespace": "trading",
+    "endpoint": "/api/orders/submit"
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "risk_ref": "RISK-006",
+  "service": "compliance-api",
+  "critical_service": true,
+  "owner": "compliance_technology_team",
+  "business_process": "regulatory_reporting_and_monitoring",
+  "data_classification": "confidential",
+  "regulatory_relevance": [
+    "emir",
+    "operational_resilience",
+    "incident_reporting"
+  ],
+  "rto_minutes": 30,
+  "dependencies": [
+    "external-data-feed",
+    "iam-core",
+    "postgres-prod"
+  ],
+  "risk_rating": "high",
+  "known_risk_notes": "Feeds regulatory submissions. Degraded external-data-feed vendor causes stale data in EMIR reports. Privileged admin access outside change windows was flagged in last audit."
+}

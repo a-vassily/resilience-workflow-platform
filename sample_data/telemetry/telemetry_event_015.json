@@ -1,0 +1,17 @@
+{
+  "alert_id": "TEL-7015",
+  "timestamp": "2026-04-17T09:10:00Z",
+  "tool": "grafana",
+  "alert_name": "Database Connection Pool Exhausted",
+  "service": "trade-booking",
+  "asset": "trade-db-01",
+  "metric": "db.connection_pool.available",
+  "current_value": 0,
+  "threshold": 5,
+  "unit": "connections",
+  "labels": {
+    "env": "prod",
+    "namespace": "trading",
+    "db": "trade-postgres"
+  }
+}

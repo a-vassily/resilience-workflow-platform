@@ -37,3 +37,17 @@ class IncidentStatusUpdateRequest(BaseModel):
     status: str
     notes: str | None = None
     decision_payload: dict[str, Any] = Field(default_factory=dict)
+
+
+class RemediationCreateRequest(BaseModel):
+    title: str
+    description: str | None = None
+    owner: str | None = None
+    due_date: str | None = None
+    dependency_note: str | None = None
+
+
+class RemediationUpdateRequest(BaseModel):
+    status: str | None = None
+    closure_evidence_ref: str | None = None
+    lessons_learned: str | None = None
