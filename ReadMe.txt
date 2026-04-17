@@ -157,3 +157,42 @@ docker exec -it resilience_postgres psql -U resilience -d resilience -c "SELECT 
 
 docker exec -it resilience_postgres psql -U resilience -d resilience -c "SELECT request_id, schema_valid, latency_ms, created_at FROM ai_enrichment_responses ORDER BY created_at DESC;"
 
+You can now show the full flow in this order:
+
+Raw events
+SELECT id, source_system, source_type, ingest_status, created_at
+FROM raw_events
+ORDER BY created_at DESC;
+
+Canonical events
+SELECT event_id, source_type, event_type, linked_service, correlation_status
+FROM canonical_events
+ORDER BY created_at DESC;
+
+Candidate incident
+SELECT incident_id, status, service_name, confidence_score, rule_hits
+FROM candidate_incidents
+ORDER BY created_at DESC;
+
+AI enrichment request
+SELECT request_id, incident_id, route_used, model_id, requested_at
+FROM ai_enrichment_requests
+ORDER BY requested_at DESC;
+AI enrichment response
+
+SELECT request_id, schema_valid, latency_ms, created_at
+FROM ai_enrichment_responses
+ORDER BY created_at DESC;
+Best demo narrative
+
+A clean way to present it is:
+
+simulated multi-source operational signals are ingested
+the platform normalizes them into a canonical event model
+deterministic correlation creates a candidate incident
+only then the intelligence layer is invoked
+the LLM produces bounded advisory output
+authoritative state remains in PostgreSQL
+AI assists, but does not decide
+
+That is exactly aligned with the design principle in your document.
