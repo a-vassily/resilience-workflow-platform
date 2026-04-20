@@ -19,6 +19,20 @@ This repository is a local prototype for a resilience workflow platform that:
 
 The design keeps authoritative state in PostgreSQL. AI output is advisory, stored separately, and does not make final decisions.
 
+What is included
+Docker Compose for infrastructure only
+SQL schema for canonical events, candidate incidents, AI enrichment, and review actions
+FastAPI ingest API with adapter stubs for Jira and ServiceNow style payloads
+FastAPI control API with a lightweight browser review UI
+Normalizer worker
+Correlator worker
+Intelligence service
+Sample source-event JSON files
+Project-stored PyCharm run configurations under .run/
+Reference context files
+Initial correlation rules
+
+
 ## 2. Architecture overview
 
 The system is split into application services, shared support code, and local infrastructure.
@@ -819,94 +833,7 @@ A clean demo sequence is:
 12. Create a remediation action; show the audit log timeline.
 13. Show the PostgreSQL tables to demonstrate authoritative state.
 
-## 18. Demo scenarios and talking points
-
-### Core message
-
-"The platform produces candidate incidents, not automatic final incidents. Deterministic rules create the control object. AI is invoked after correlation, not before. The AI output is advisory and bounded. The authoritative state remains in PostgreSQL. The architecture supports operational resilience, auditability, and regulatory readiness."
-
-### Scenario A: Privileged access anomaly on a critical service
-
-**Service**: `portfolio-api`
-
-**Signals**: failed privileged access, repeated failed privileged access, critical service context.
-
-**Expected rule hits**: `PRIV_ACCESS_CRITICAL_SERVICE`, `RISK_CONTEXT_AMPLIFIED_CYBER`
-
-**What to say**: "This is the foundational case: the platform identifies a privileged-access anomaly affecting a business-critical service. The point is not just detecting a login problem; it is recognizing that this affects a critical service and should enter an incident workflow with context."
-
-### Scenario B: Vendor degradation affecting service availability
-
-**Service**: `client-reporting`
-
-**Signals**: vendor outage, synthetic failure, service error rate.
-
-**Expected rule hits**: `VENDOR_OUTAGE_WITH_SYNTHETIC_FAILURE`, `STORAGE_CAPACITY_AND_BACKUP_FAILURE`
-
-**What to say**: "No single alert is enough. A vendor issue alone may be noise; a synthetic failure alone may be local; an application error rate alone may be ambiguous. Together they form a credible candidate incident."
-
-**What to highlight**: multi-source fusion; vendor relationship visible in incident detail; richer context than a single-alert system.
-
-### Scenario C: Data exfiltration with impossible travel (trade-booking)
-
-**Service**: `trade-booking`
-
-**Signals**: data exfiltration alert on trade-db-01, impossible travel for trade-admin (Luxembourg → Singapore, 18 minutes apart), break-glass account used, trade-execution-gateway outage, service error rate spike.
-
-**Expected rule hits**: `EXFILTRATION_WITH_IDENTITY_ANOMALY`, `PRIVILEGED_ACCESS_WITH_IMPOSSIBLE_TRAVEL`, `VENDOR_OUTAGE_WITH_SERVICE_ERRORS`
-
-**What to say**: "This is the most critical scenario. The vendor outage is real but it is also creating a monitoring gap. During that gap, trade-admin is logging in from two continents simultaneously and a large outbound transfer is detected. The platform correlates all three signals rather than treating the security events as noise during an operational incident."
-
-**What to highlight**: `PRIVILEGED_ACCESS_WITH_IMPOSSIBLE_TRAVEL` is a new rule with 0.87 confidence — the travel signal proves the account is being used from geographically incompatible locations; MiFID II clock starts on classification.
-
-### Scenario D: Admin session anomaly on compliance-api
-
-**Service**: `compliance-api`
-
-**Signals**: repeated failed privileged access (compliance-admin, 9 failures in 4 minutes), suspicious admin session (QRadar), external-data-feed vendor degradation, regulatory feed timeout telemetry.
-
-**Expected rule hits**: `PRIV_ACCESS_CRITICAL_SERVICE`, `VENDOR_OUTAGE_WITH_SERVICE_ERRORS`, `RISK_CONTEXT_AMPLIFIED_OPERATIONAL`
-
-**What to say**: "The compliance team was focused on the vendor degradation. The repeated failed login attempts on the same asset within the same window were investigated separately by the SOC. This platform creates a single candidate that surfaces both. Prior incidents in the reference data show this exact missed correlation pattern happening before."
-
-### Scenario E: Batch and platform instability
-
-**Service**: `nav-batch`
-
-**Signals**: restart storm, queue backlog, batch job failure.
-
-**Expected rule hits**: `BATCH_PROCESSING_DEGRADATION`, `PLATFORM_INSTABILITY_CRITICAL_WORKLOAD`
-
-**What to say**: "This is non-cyber. The platform is cross-domain: operational reliability incidents get the same workflow treatment as security incidents. NAV calculation failure carries a regulatory notification obligation, so the same review and documentation flow applies."
-
-### Scenario F: Malware on production host
-
-**Service**: `portfolio-api`
-
-**Signals**: malware detected on srv-ops-18 (QRadar QR-9400, severity 9).
-
-**Expected rule hits**: `MALWARE_ON_CRITICAL_SERVICE`
-
-**What to say**: "This is the only single-signal rule in the set. Malware on a critical service host is severe enough that we do not need corroborating signals to justify creating a candidate incident. The rule fires on confidence 0.88 from a single QRadar alert."
-
-### Recommended presentation order
-
-1. Reset and seed the database — show a fresh run.
-2. Show raw events from multiple source types.
-3. Show canonical events — explain the normalization mapping.
-4. Show the incident list — 6 services, multiple rules, different severities.
-5. Open Scenario F (malware, portfolio-api) — single-signal critical rule.
-6. Open Scenario C (trade-booking) — compound cyber + vendor incident; trigger enrichment, generate pack, generate report draft.
-7. Open Scenario D (compliance-api) — missed-correlation pattern from prior incidents.
-8. Open Scenario E (nav-batch) — non-cyber operational case.
-9. Show the audit log timeline for any incident — demonstrate full traceability.
-10. Show the PostgreSQL tables — authoritative state, AI is not the record.
-
-### Best demo closing line
-
-"This prototype is not trying to automate incident authority. It is showing how to combine deterministic control, structured evidence, and bounded AI assistance into a resilience-oriented operating model that a regulated firm can actually stand behind."
-
-## 19. Troubleshooting
+## 18. Troubleshooting
 
 ### No incidents appear in the UI
 
@@ -959,7 +886,7 @@ If the schema is missing or stale, rebuild the environment:
 .\scripts\bootstrap.ps1 -RebuildDb
 ```
 
-## 20. Repository map
+## 19. Repository map
 
 | Path | Contents |
 |---|---|
@@ -981,7 +908,7 @@ If the schema is missing or stale, rebuild the environment:
 | `scripts/bootstrap.ps1` | full environment bootstrap |
 | `.run/` | committed PyCharm run configurations for the three APIs |
 
-## 21. Current limits and future direction
+## 20. Current limits and future direction
 
 This repository is intentionally minimal. It is optimized for local inspection and demo flow rather than production hardening.
 
