@@ -2,6 +2,9 @@
 
 This document describes the current repository architecture, the end-to-end data flow, and the exact steps to run the prototype locally.
 
+THIS IS A PROOF OF CONCEPT TO RUN LOCALLY. DO NOT RUN ON A SERVER, DO NOT EXPOSE THE URLs ON THE NETWORK OR THE INTERNET. 
+YOU WILL BE HACKED. YOU HAVE BEEN WARNED. 
+
 ## 1. What this project is
 
 This repository is a local prototype for a resilience workflow platform that:
@@ -486,7 +489,8 @@ That matters because `app/intelligence_service/main.py` currently sends a Chat C
 ## 10. How to run the project
 
 ### Option A: Recommended bootstrap flow
-
+Start by creating a virtual environment with your favourite tool and switch to it. 
+Then: 
 From the repository root in PowerShell:
 
 ```powershell
