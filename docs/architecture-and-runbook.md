@@ -9,9 +9,13 @@ This repository is a local prototype for a resilience workflow platform that:
 - ingests operational, security, and context signals from multiple sources,
 - stores raw evidence separately from normalized workflow state,
 - normalizes source-specific payloads into a canonical event model,
-- correlates related events into candidate incidents,
+- correlates related events into candidate incidents using deterministic YAML rules,
 - enriches incidents with bounded LLM-generated analysis,
-- supports human review and status transitions through a lightweight UI.
+- supports human review, status transitions, and classification through a lightweight UI,
+- assembles versioned incident packs (structured JSON dossiers) for each incident,
+- generates draft regulatory reports with explicit AI-draft disclaimers,
+- tracks remediation actions with status, owner, and closure evidence,
+- records a full audit trail of every system and human action.
 
 The design keeps authoritative state in PostgreSQL. AI output is advisory, stored separately, and does not make final decisions.
 
@@ -28,18 +32,31 @@ FastAPI service responsible for collecting source events.
 Main responsibilities:
 
 - receive uploaded JSON files and direct event payloads,
-- infer a source type for uploaded files,
-- persist the raw payload to MinIO,
+- infer a source type for uploaded files using `_guess_source_type`,
+- persist the raw payload to MinIO (`raw-events` bucket),
 - create a `raw_events` row in PostgreSQL,
-- expose adapter-style endpoints for Jira and ServiceNow shaped payloads.
+- expose adapter-style endpoints for Jira and ServiceNow shaped payloads that map source-native structures before storage.
 
 Main endpoints:
 
 - `GET /health`
-- `POST /ingest/event`
-- `POST /ingest/file`
-- `POST /adapters/jira/webhook`
-- `POST /adapters/servicenow/event`
+- `POST /ingest/event` — direct JSON ingestion with explicit source_type
+- `POST /ingest/file` — file upload with automatic source_type inference
+- `POST /adapters/jira/webhook` — maps Jira webhook to telemetry_alert shape
+- `POST /adapters/servicenow/event` — maps ServiceNow incident to identity_event shape
+
+Source type inference (`_guess_source_type`) detects:
+
+| Payload field present | Inferred source_type |
+|---|---|
+| `offense_id` | `security_event` |
+| `system == 'cyberark'` or `failure_count` | `identity_event` |
+| `vendor_event_id` or `impacted_services` | `vendor_event` |
+| `alert_id` or `tool == 'grafana'` | `telemetry_alert` |
+| `risk_ref` | `risk_context` |
+| (none of the above) | `unknown` |
+
+Jira and ServiceNow payloads do not match the file inference rules and must be submitted to the dedicated adapter endpoints.
 
 #### `app/normalizer_worker/main.py`
 
@@ -47,11 +64,43 @@ One-shot worker that transforms raw events into canonical events.
 
 Main responsibilities:
 
-- read unprocessed rows from `raw_events`,
-- map source-specific payloads into the canonical event shape,
+- read unprocessed rows from `raw_events` (where `ingest_status = 'received'`),
+- map source-specific payloads into the canonical event shape per source type,
 - insert rows into `canonical_events`,
 - upsert service context when the source type is `risk_context`,
 - mark raw rows as normalized.
+
+The worker processes events with per-event exception handling: if a single event fails normalization (for example, an unknown source type), the error is printed, that event is skipped, and processing continues with the next row. The failed raw event is still marked as normalized to avoid infinite retry.
+
+**Supported source types and resulting event_type values:**
+
+| source_type | Payload indicator | Canonical event_type |
+|---|---|---|
+| `security_event` | `exfil` in event_name or category | `data_exfiltration_alert` |
+| `security_event` | `break glass` in event_name | `break_glass_account_used` |
+| `security_event` | `admin session` in event_name | `suspicious_admin_session` |
+| `security_event` | `malware` in event_name | `malware_detected` |
+| `security_event` | (fallthrough) | `failed_privileged_access` |
+| `identity_event` | `impossible_travel_admin_login` | `impossible_travel_admin_login` |
+| `identity_event` | `pam_break_glass_used` | `break_glass_account_used` |
+| `identity_event` | `privileged_group_change` | `privileged_group_change` |
+| `identity_event` | `incident_ticket_signal` | `incident_ticket_signal` |
+| `identity_event` | (fallthrough) | `repeated_failed_privileged_access` |
+| `vendor_event` | status `outage/down/unavailable` | `vendor_outage` |
+| `vendor_event` | status `latency/degraded-performance` | `vendor_latency_degradation` |
+| `vendor_event` | status `sla_breach` | `vendor_sla_breach` |
+| `vendor_event` | (fallthrough) | `vendor_degradation` |
+| `telemetry_alert` | restart in name/metric | `pod_restart_storm` |
+| `telemetry_alert` | cpu in name or metric | `cpu_saturation` |
+| `telemetry_alert` | memory in name or metric | `memory_pressure` |
+| `telemetry_alert` | synthetic in name | `synthetic_check_failure` |
+| `telemetry_alert` | latency in name or metric | `latency_spike` |
+| `telemetry_alert` | queue in name or metric | `queue_backlog_high` |
+| `telemetry_alert` | batch in name or metric | `batch_job_failure` |
+| `telemetry_alert` | disk in name or metric | `disk_full_risk` |
+| `telemetry_alert` | backup in name or metric | `backup_failure` |
+| `telemetry_alert` | (fallthrough) | `service_error_rate_high` |
+| `risk_context` | (always) | `risk_context_update` |
 
 Primary entry points:
 
@@ -65,11 +114,22 @@ One-shot worker that groups canonical events and applies deterministic rules.
 Main responsibilities:
 
 - read canonical events with `correlation_status = 'new'`,
-- group events by linked service or vendor reference,
+- group events by linked_service (falling back to affected_asset, then vendor_reference),
 - load rules from `rules/correlation_rules.yaml`,
-- create `candidate_incidents` when a rule matches,
-- create `incident_event_links`,
+- evaluate each rule's conditions against each service group,
+- create `candidate_incidents` and `incident_event_links` for matching groups,
+- emit an `incident.created` audit event for each created incident,
 - mark processed canonical events as correlated.
+
+**Threshold flags** computed for each incident (used in UI and incident pack):
+
+| Flag | Condition |
+|---|---|
+| `critical_service_impact` | service context has `critical_service = true` |
+| `unauthorized_access_indicator` | any event in group is of type: `failed_privileged_access`, `repeated_failed_privileged_access`, `impossible_travel_admin_login`, `data_exfiltration_alert`, `break_glass_account_used`, `suspicious_admin_session`, `malware_detected`, `privileged_group_change` |
+| `multi_signal_pattern` | group has 2 or more events |
+| `vendor_dependency_issue` | any event has `source_type = vendor_event` |
+| `platform_instability` | any event is of type `pod_restart_storm`, `cpu_saturation`, or `memory_pressure` |
 
 Primary entry points:
 
@@ -86,7 +146,8 @@ Main responsibilities:
 - assemble a prompt package using incident data and local reference material,
 - call LM Studio through an OpenAI-compatible endpoint,
 - validate the response shape,
-- store prompt/request metadata and response metadata,
+- store prompt/request metadata and response metadata in PostgreSQL,
+- emit an `incident.enrichment.completed` audit event,
 - return the enrichment result.
 
 Main endpoints:
@@ -97,32 +158,73 @@ Main endpoints:
 Important behavior:
 
 - if the model call fails or the response is not valid JSON, the service returns a deterministic fallback payload so the demo flow can continue,
-- the current service implementation sends a Chat Completions-style payload.
+- prompt integrity is tracked via SHA-256 hash stored alongside the request metadata,
+- the prompt is structured with six fixed sections: system, task, incident_context, retrieved_evidence, constraints, output_schema.
 
 #### `app/control_api/main.py`
 
-FastAPI service used for review workflows and UI orchestration.
+FastAPI service for review workflows, UI orchestration, and the full incident lifecycle.
 
 Main responsibilities:
 
-- list incidents,
-- return incident detail,
-- record review actions,
-- update incident status,
-- proxy enrichment requests to the intelligence service,
+- list and return incidents,
+- record review actions (with automatic audit event emission),
+- update incident status (with automatic audit event emission and auto-triggered pack assembly),
+- proxy enrichment requests to the intelligence service (with automatic audit event emission and auto-triggered pack assembly after enrichment),
+- assemble and proxy incident packs and report drafts,
+- manage remediation actions,
 - serve the browser UI.
 
 Main endpoints:
 
-- `GET /health`
-- `GET /incidents`
-- `GET /incidents/{incident_id}`
-- `POST /incidents/{incident_id}/review`
-- `POST /incidents/{incident_id}/status`
-- `POST /incidents/{incident_id}/enrich`
-- `GET /ui`
+| Endpoint | Purpose |
+|---|---|
+| `GET /health` | liveness check |
+| `GET /incidents` | list all incidents |
+| `GET /incidents/{id}` | incident detail |
+| `POST /incidents/{id}/review` | record a review action; auto-audits |
+| `POST /incidents/{id}/status` | update status; auto-audits; auto-assembles pack |
+| `POST /incidents/{id}/enrich` | proxy to intelligence service; auto-audits; auto-assembles pack |
+| `POST /incidents/{id}/pack` | assemble incident pack on demand |
+| `GET /incidents/{id}/pack` | retrieve current incident pack from MinIO |
+| `POST /incidents/{id}/reporting/draft` | generate report draft |
+| `GET /incidents/{id}/reporting/draft` | retrieve current report draft from MinIO |
+| `POST /incidents/{id}/remediation` | create a remediation action |
+| `GET /incidents/{id}/remediation` | list all remediation actions |
+| `PATCH /incidents/{id}/remediation/{rem_id}` | update remediation status or closure evidence |
+| `GET /incidents/{id}/audit` | list all audit events for the incident |
+| `GET /ui` | serve the browser UI |
 
-The UI is a static page at `app/control_api/static/index.html`.
+The UI (embedded in `main.py`) loads incident detail in a single `Promise.all` call, fetching remediation actions, the current incident pack, the current report draft, and the full audit log in parallel.
+
+#### `app/control_api/incident_pack.py`
+
+Module responsible for assembling incident packs.
+
+Main responsibilities:
+
+- collect the incident record, all linked canonical events, the latest enrichment, all review actions, and all remediation actions,
+- build a versioned JSON dossier with a `generated_at` timestamp,
+- store the pack in MinIO at `artifacts/incident-packs/{incident_id}/pack-{timestamp}.json`,
+- update `incident_pack_ref` on the incident record,
+- return the MinIO object reference.
+
+The pack includes structured sections: `incident`, `events`, `enrichment_summary`, `review_actions`, `remediation_actions`, `generated_at`.
+
+`fetch_incident_pack(ref)` retrieves a pack from MinIO by its reference string.
+
+#### `app/control_api/reporting.py`
+
+Module responsible for generating draft regulatory report documents.
+
+Main responsibilities:
+
+- build a structured draft with: classification_state, incident_summary, event_timeline, ai_draft_narrative (with its own disclaimer), evidence_references, review_actions_summary, remediation_summary, open_items, pending_approvals,
+- store the draft in MinIO at `reports/incident-reports/{incident_id}/draft-{timestamp}.json`,
+- update `reporting_pack_ref` on the incident record,
+- return the MinIO object reference.
+
+Every report draft carries a `DISCLAIMER` header and every AI-generated narrative section carries its own nested disclaimer. The open_items section is computed programmatically from incident state: missing classification, missing review actions, outstanding AI uncertainties, open remediations, and missing enrichment are all surfaced as explicit blockers.
 
 ### Shared application layer
 
@@ -130,36 +232,58 @@ Shared code lives under `app/common/`.
 
 - `config.py`: environment-driven settings
 - `db.py`: SQLAlchemy engine and session factory
-- `repository.py`: SQL helpers used by the APIs and workers
+- `repository.py`: SQL helpers used by the APIs and workers (see below for new functions)
 - `llm.py`: helper functions for LM Studio request and response handling
 - `minio_client.py`: MinIO client factory
-- `schemas.py`: Pydantic models for request payloads
+- `schemas.py`: Pydantic v2 models for request payloads
+
+New repository functions added since the initial implementation:
+
+| Function | Purpose |
+|---|---|
+| `insert_audit_event(entity_type, entity_id, action_type, actor, details)` | Insert a timestamped audit record |
+| `list_audit_events(entity_type, entity_id)` | Retrieve audit history for an entity |
+| `insert_remediation_action(incident_id, title, description, owner, due_date, dependency_note)` | Create a remediation action, returns UUID |
+| `list_remediation_actions(incident_id)` | List all remediation actions for an incident |
+| `update_remediation_action(remediation_id, status, closure_evidence_ref, lessons_learned)` | Update remediation status |
+| `set_incident_pack_ref(incident_id, ref)` | Store MinIO reference to the current incident pack |
+| `set_reporting_pack_ref(incident_id, ref)` | Store MinIO reference to the current report draft |
+
+New schemas in `app/common/schemas.py`:
+
+- `RemediationCreateRequest`: title, description, owner, due_date, dependency_note
+- `RemediationUpdateRequest`: status, closure_evidence_ref, lessons_learned (all optional)
 
 ### Local infrastructure
 
-`docker-compose.yml` currently starts only:
+`docker-compose.yml` starts:
 
-- PostgreSQL
-- MinIO
+- PostgreSQL (port 5432)
+- MinIO (API port 9000, console port 9001)
 
 LM Studio is expected to run locally outside Docker.
 
 ## 3. End-to-end data flow
 
-The main processing flow is:
+The full processing flow is:
 
-1. A source event is submitted to the ingest API.
-2. The raw payload is written to MinIO in the `raw-events` bucket.
-3. Metadata plus the evidence pointer are inserted into `raw_events`.
+1. A source event is submitted to the ingest API via `/ingest/file`, `/ingest/event`, or a dedicated adapter endpoint.
+2. The raw payload is written to MinIO in the `raw-events` bucket; an evidence pointer (MinIO URI) is returned.
+3. Metadata, source type, and the evidence pointer are inserted into `raw_events`.
 4. The normalizer reads rows where `ingest_status = 'received'`.
-5. Each raw payload is transformed into a canonical event and stored in `canonical_events`.
-6. If the payload is a risk-context update, service context is also upserted.
+5. Each raw payload is transformed into a canonical event and stored in `canonical_events`; errors are caught per-event and logged without crashing the batch.
+6. If the payload is a `risk_context` update, service context is also upserted into `service_context`.
 7. The correlator loads canonical events where `correlation_status = 'new'`.
-8. Events are grouped and checked against the YAML correlation rules.
-9. Matching groups create rows in `candidate_incidents` and `incident_event_links`.
-10. The control API exposes the incident for review.
-11. The intelligence service can enrich the incident and persist AI request and response metadata.
-12. Human review actions and status transitions are recorded in `review_actions`.
+8. Events are grouped by linked_service and checked against the 14 YAML correlation rules.
+9. Matching groups create rows in `candidate_incidents` and `incident_event_links`; an `incident.created` audit event is written.
+10. The control API exposes incidents for human review.
+11. An operator triggers AI enrichment via the UI or API; the intelligence service assembles a prompt, calls LM Studio, validates the response, persists it, and emits an `incident.enrichment.completed` audit event.
+12. After enrichment, the control API auto-assembles an incident pack and stores it in MinIO.
+13. Human review actions and status transitions are recorded in `review_actions`; each action emits an audit event.
+14. Status transitions also auto-trigger incident pack re-assembly.
+15. Operators can generate a report draft on demand; the draft is stored in MinIO and its reference is saved on the incident.
+16. Remediation actions can be created, listed, and updated with status, closure evidence, and lessons learned.
+17. The full audit trail for any incident is available via `GET /incidents/{id}/audit`.
 
 ## 4. Storage model
 
@@ -170,58 +294,143 @@ PostgreSQL is the system of record for operational workflow state.
 Key tables defined in `db/init.sql`:
 
 - `raw_events`: original source payload metadata and ingest state
-- `canonical_events`: normalized event records
-- `service_context`: service ownership, dependency, and criticality context
+- `canonical_events`: normalized event records with event_type, source_type, severity, linked_service, enrichment_tags
+- `service_context`: service ownership, dependency, criticality context (upserted from risk_context payloads)
 - `risk_context_refs`: risk-context reference payloads
-- `candidate_incidents`: correlated incident candidates
-- `incident_event_links`: links between incidents and contributing events
+- `candidate_incidents`: correlated incident candidates with full payload, threshold_flags, rule_hits, and lifecycle state
+- `incident_event_links`: links between incidents and contributing canonical events
 - `incident_artifacts`: references to stored incident artifacts
-- `ai_enrichment_requests`: prompt and request metadata
-- `ai_enrichment_responses`: model outputs, validation state, and latency
+- `ai_enrichment_requests`: prompt hash, model, route, and timing metadata
+- `ai_enrichment_responses`: model outputs, schema validation state, latency
 - `review_actions`: human review and status-change activity
-- `remediation_actions`: remediation follow-up records
-- `audit_log`: generic audit trail table
+- `remediation_actions`: remediation follow-up records with owner, due date, status, closure evidence, and lessons learned
+- `audit_log`: generic timestamped audit trail (entity_type, entity_id, action_type, actor, details)
 
 The schema also defines `updated_at` triggers for key tables and seeds an example `service_context` row for `portfolio-api`.
+
+**Incident status lifecycle:**
+
+```
+candidate → triage_pending → under_review → classified_internal
+                                          → classified_reportable → reported_initial
+                                                                  → reported_intermediate
+                                                                  → reported_final
+                                                                  → remediation_open → closed
+```
 
 ### MinIO
 
 MinIO stores larger payloads and externalized evidence.
 
-Expected buckets:
+Buckets and active usage:
 
-- `raw-events`
-- `artifacts`
-- `prompts`
-- `reports`
+| Bucket | Contents |
+|---|---|
+| `raw-events` | Raw ingested payloads, one file per ingest call (`{source_system}/{timestamp}.json`) |
+| `artifacts` | Incident packs at `artifacts/incident-packs/{incident_id}/pack-{timestamp}.json` |
+| `reports` | Report drafts at `reports/incident-reports/{incident_id}/draft-{timestamp}.json` |
+| `prompts` | LLM prompt packages written by the intelligence service |
 
-In the current codebase, the ingest API actively writes raw uploaded payloads to `raw-events`.
+All MinIO reads use `.close()` and `.release_conn()` after streaming to avoid connection leaks.
 
 ### Reference data
 
 The intelligence service reads local reference files from `reference/`:
 
-- `runbooks.json`
-- `prior_incidents.json`
-- `risk_context.json`
-- `services.json`
+| File | Entries | Purpose |
+|---|---|---|
+| `services.json` | 6 services | Service metadata, vendor, RTO, dependencies, escalation contact |
+| `runbooks.json` | 6 runbooks | Service-specific first-response guidance for correlation |
+| `risk_context.json` | 6 entries | Risk ratings, data classification, known risk notes |
+| `prior_incidents.json` | 14 entries | Historical incidents used as retrieval context |
 
-These act as lightweight retrieval context for prompt construction.
+Services currently covered: `portfolio-api`, `client-reporting`, `nav-batch`, `iam-core`, `trade-booking`, `compliance-api`.
 
-## 5. Runtime characteristics
+## 5. Correlation rules
+
+Rules are loaded at runtime from `rules/correlation_rules.yaml`. There are currently 14 rules.
+
+### Rule inventory
+
+| Rule ID | Confidence | Severity | Description |
+|---|---|---|---|
+| `PRIV_ACCESS_CRITICAL_SERVICE` | 0.78 | high | Failed + repeated privileged access on critical service, 2+ distinct sources |
+| `VENDOR_OUTAGE_WITH_SYNTHETIC_FAILURE` | 0.86 | critical | Vendor outage + synthetic check failure, vendor present |
+| `VENDOR_DEGRADATION_WITH_SERVICE_ERRORS` | 0.74 | high | Vendor degradation + service error rate high, same service |
+| `PLATFORM_INSTABILITY_CRITICAL_WORKLOAD` | 0.82 | high | Pod restart storm + capacity stress on critical service |
+| `BREAK_GLASS_ADMIN_ACTIVITY` | 0.84 | critical | Break-glass or suspicious admin activity, 2+ sources, high severity |
+| `EXFILTRATION_WITH_IDENTITY_ANOMALY` | 0.90 | critical | Data exfiltration + impossible travel, same service, 2+ sources |
+| `STORAGE_CAPACITY_AND_BACKUP_FAILURE` | 0.79 | high | Disk full risk + backup failure or service errors |
+| `BATCH_PROCESSING_DEGRADATION` | 0.68 | medium | Batch job failure + queue backlog or latency |
+| `REPEATED_WEAK_SIGNAL_BURST` | 0.64 | medium | 3+ weak signals of the same type on the same service |
+| `RISK_CONTEXT_AMPLIFIED_CYBER` | 0.72 | high | Risk context record + security/identity signal, same service |
+| `RISK_CONTEXT_AMPLIFIED_OPERATIONAL` | 0.61 | medium | Risk context record + telemetry/vendor signal, same service |
+| `PRIVILEGED_ACCESS_WITH_IMPOSSIBLE_TRAVEL` | 0.87 | critical | Privileged access failure + impossible travel on same service — credential compromise indicator |
+| `VENDOR_OUTAGE_WITH_SERVICE_ERRORS` | 0.83 | high | Vendor outage or degradation + service error rate high, vendor reference present |
+| `MALWARE_ON_CRITICAL_SERVICE` | 0.88 | critical | Malware detected on any asset of a critical service — single-signal rule |
+
+### Supported condition types in `_matches()`
+
+| Condition key | Semantics |
+|---|---|
+| `event_type_all` | All listed event_types must be present |
+| `event_type_any` | At least one listed event_type must be present |
+| `event_type_count_at_least` | N or more distinct event_types from a list must be present |
+| `critical_service` | Service context must have `critical_service = true` |
+| `tag_any` | At least one enrichment tag from the list must be present |
+| `source_type_any` | At least one event with a matching source_type must be present |
+| `same_linked_service` | All events must share a single linked_service value |
+| `vendor_present` | At least one event must have a non-null vendor_reference |
+| `min_distinct_sources` | At least N distinct source_type values must be represented |
+| `severity_at_least` | The highest severity in the group must meet or exceed the threshold |
+
+Multiple conditions of the same type in the `all` list are AND-ed (each condition dict is evaluated independently).
+
+## 6. Sample data
+
+50 sample JSON files across 7 source directories.
+
+| Directory | Count | Events covered |
+|---|---|---|
+| `sample_data/qradar/` | 8 | Exfiltration, malware, failed logins, admin sessions across portfolio-api, trade-booking, compliance-api, iam-core |
+| `sample_data/iam/` | 7 | Repeated failures, impossible travel, break-glass, privileged group change across portfolio-api, iam-core, trade-booking, compliance-api |
+| `sample_data/telemetry/` | 19 | Error rates, latency, CPU, memory, disk, backup, queue, batch, outbound traffic across all 6 services |
+| `sample_data/vendor/` | 6 | Degradation and outage from market-data-gateway, statement-renderer-saas, pricing-feed-hub, trade-execution-gateway, external-data-feed, identity-verification-svc |
+| `sample_data/risk/` | 6 | Risk context for all 6 services (RISK-001 through RISK-006) |
+| `sample_data/jira/` | 2 | ITSM incident signals for portfolio-api and trade-booking |
+| `sample_data/servicenow/` | 2 | ITSM incident signals for portfolio-api and compliance-api |
+
+### Expected incident candidates from the full sample dataset
+
+After seeding and running both workers, the following candidate incidents should be created:
+
+| Service | Expected rule hits |
+|---|---|
+| `portfolio-api` | `PRIV_ACCESS_CRITICAL_SERVICE`, `MALWARE_ON_CRITICAL_SERVICE`, `VENDOR_DEGRADATION_WITH_SERVICE_ERRORS`, `RISK_CONTEXT_AMPLIFIED_CYBER` |
+| `client-reporting` | `VENDOR_OUTAGE_WITH_SYNTHETIC_FAILURE`, `EXFILTRATION_WITH_IDENTITY_ANOMALY`, `STORAGE_CAPACITY_AND_BACKUP_FAILURE` |
+| `nav-batch` | `BATCH_PROCESSING_DEGRADATION`, `PLATFORM_INSTABILITY_CRITICAL_WORKLOAD` |
+| `iam-core` | `BREAK_GLASS_ADMIN_ACTIVITY`, `RISK_CONTEXT_AMPLIFIED_CYBER` |
+| `trade-booking` | `EXFILTRATION_WITH_IDENTITY_ANOMALY`, `PRIVILEGED_ACCESS_WITH_IMPOSSIBLE_TRAVEL`, `VENDOR_OUTAGE_WITH_SERVICE_ERRORS` |
+| `compliance-api` | `PRIV_ACCESS_CRITICAL_SERVICE`, `VENDOR_OUTAGE_WITH_SERVICE_ERRORS`, `RISK_CONTEXT_AMPLIFIED_OPERATIONAL` |
+
+Actual groupings depend on the events present in each batch and may merge or split depending on ingest order.
+
+## 7. Runtime characteristics
 
 This prototype intentionally favors clarity over production complexity.
 
 Current characteristics:
 
 - synchronous request handling,
-- one-shot workers rather than long-running schedulers,
-- SQL written through repository helper functions,
-- local JSON files used as retrieval context,
-- a lightweight static review UI,
-- deterministic fallback output when the LLM route is unavailable.
+- one-shot workers rather than long-running schedulers (loop mode available via env vars),
+- SQL written through repository helper functions using raw `text()` queries,
+- local JSON files used as retrieval context for AI prompts,
+- a lightweight single-page review UI embedded in `control_api/main.py`,
+- deterministic fallback output when the LLM route is unavailable,
+- per-event exception handling in the normalizer so one bad event does not crash the batch,
+- all audit trail writes are wrapped in try/except so audit failures do not affect primary operations.
 
-## 6. Prerequisites
+## 8. Prerequisites
 
 Prepare the following before running the demo:
 
@@ -230,7 +439,7 @@ Prepare the following before running the demo:
 - LM Studio with the local server enabled
 - optional: PyCharm, if you want to use the committed run configurations
 
-## 7. Environment and configuration
+## 9. Environment and configuration
 
 The application loads settings from `.env` via `app/common/config.py`.
 
@@ -260,7 +469,7 @@ That matters because `app/intelligence_service/main.py` currently sends a Chat C
 - start the APIs using the provided PyCharm run configurations, or
 - override `LLM_CHAT_PATH=/v1/chat/completions` when starting the intelligence service manually.
 
-## 8. How to run the project
+## 10. How to run the project
 
 ### Option A: Recommended bootstrap flow
 
@@ -326,15 +535,15 @@ docker exec -it resilience_postgres psql -U resilience -d resilience -c "\dt"
 
 All tables listed in the storage model section should appear; if they do not, rerun the bootstrap script with `-RebuildDb`.
 
-## 9. LM Studio setup
+## 11. LM Studio setup
 
 Before using the intelligence service, ensure:
 
-- **LM Studio is open** - the application requires a running local LM Studio instance,
-- **local server is enabled** - the `/v1/chat/completions` endpoint must be accessible,
-- **the model is loaded** - select the model in LM Studio before testing,
-- **model name matches configuration** - the `LLM_MODEL` environment variable must exactly match the model identifier exposed by LM Studio,
-- **route matches the implementation** - verify `LLM_CHAT_PATH` is set correctly (see below).
+- **LM Studio is open** — the application requires a running local LM Studio instance,
+- **local server is enabled** — the `/v1/chat/completions` endpoint must be accessible,
+- **the model is loaded** — select the model in LM Studio before testing,
+- **model name matches configuration** — the `LLM_MODEL` environment variable must exactly match the model identifier exposed by LM Studio,
+- **route matches the implementation** — verify `LLM_CHAT_PATH` is set correctly.
 
 For the current PyCharm run configurations, the effective path is:
 
@@ -342,13 +551,11 @@ For the current PyCharm run configurations, the effective path is:
 
 If you are relying only on `.env`, review the note in the previous section before starting the intelligence service.
 
-If LM Studio exposes a slightly different model identifier than expected, update the `.env` value accordingly.
-
-## 10. Start the application processes
+## 12. Start the application processes
 
 ### PyCharm path
 
-The repository currently includes committed run configurations for:
+The repository includes committed run configurations for:
 
 - `Ingest API`
 - `Control API`
@@ -359,8 +566,8 @@ These are stored under `.run/`.
 Recommended start order:
 
 1. `Ingest API`
-2. `Control API`
-3. `Intelligence Service`
+2. `Intelligence Service`
+3. `Control API`
 
 For the workers, run the scripts manually from PyCharm or a terminal:
 
@@ -377,7 +584,7 @@ Start the ingest API:
 python -m uvicorn app.ingest_api.main:app --reload --port 8000
 ```
 
-Start the intelligence service. To match the current implementation, explicitly override the path:
+Start the intelligence service (explicitly override the path to match the Chat Completions implementation):
 
 ```powershell
 $env:LLM_CHAT_PATH='/v1/chat/completions'; python -m uvicorn app.intelligence_service.main:app --reload --port 8001
@@ -391,9 +598,10 @@ python -m uvicorn app.control_api.main:app --reload --port 8002
 
 ### UI automation helpers
 
-The control API UI exposes helper buttons (`Reset & seed`, `Reset, seed & enrich`, `Run AI enrichment`) that script the recommended demo flow. Use them after the APIs are running if you prefer a guided experience instead of manual `curl` commands.
+The control API UI exposes helper buttons (`Reset & seed`, `Reset, seed & enrich`, `Run AI enrichment`) that script the recommended demo flow. 
+Use them after the APIs are running if you prefer a guided experience instead of manual `curl` commands.
 
-## 11. Ingest sample data
+## 13. Ingest sample data
 
 Once the ingest API is running, load the sample JSON payloads.
 
@@ -403,49 +611,34 @@ Once the ingest API is running, load the sample JSON payloads.
 python scripts/seed_sample_data.py
 ```
 
-This script runs the same ingestion sequence as the UI helper buttons and is the best way to reset the demo for a live walkthrough.
+This script routes each file to the correct endpoint automatically:
+
+- files from `sample_data/jira/` are posted to `/adapters/jira/webhook`,
+- files from `sample_data/servicenow/` are posted to `/adapters/servicenow/event`,
+- all other files are posted to `/ingest/file`.
 
 ### Manual file uploads
 
-Run the POST `/ingest/file` endpoint for each sample payload if you want granular control over the sequence:
+Run the POST `/ingest/file` endpoint for source files directly. Jira and ServiceNow files must use their dedicated adapter endpoints.
 
 ```powershell
 curl.exe -X POST "http://localhost:8000/ingest/file" -F "file=@sample_data/qradar/qradar_event_001.json"
-```
-
-```powershell
 curl.exe -X POST "http://localhost:8000/ingest/file" -F "file=@sample_data/iam/iam_event_001.json"
-```
-
-```powershell
 curl.exe -X POST "http://localhost:8000/ingest/file" -F "file=@sample_data/vendor/vendor_event_001.json"
-```
-
-```powershell
 curl.exe -X POST "http://localhost:8000/ingest/file" -F "file=@sample_data/telemetry/telemetry_event_001.json"
-```
-
-```powershell
 curl.exe -X POST "http://localhost:8000/ingest/file" -F "file=@sample_data/risk/risk_context_001.json"
 ```
 
-### Optional adapter tests
-
-If you prefer source-shaped payloads instead of file uploads, hit the adapter endpoints directly:
+For Jira and ServiceNow files, use the adapter endpoints:
 
 ```powershell
 curl.exe -X POST "http://localhost:8000/adapters/jira/webhook" -H "Content-Type: application/json" --data-binary "@sample_data/jira/jira_webhook_001.json"
-```
-
-```powershell
 curl.exe -X POST "http://localhost:8000/adapters/servicenow/event" -H "Content-Type: application/json" --data-binary "@sample_data/servicenow/servicenow_incident_001.json"
 ```
 
-These help demonstrate the adapter-specific logic and can be mixed with the file-ingest approach.
+## 14. Run the workers
 
-## 12. Run the workers
-
-The normalizer and correlator are one-shot jobs. They do one pass and then exit.
+The normalizer and correlator are one-shot jobs.
 
 Run the normalizer:
 
@@ -463,9 +656,9 @@ Expected outcome:
 
 - raw events move to canonical events,
 - canonical events are grouped and correlated,
-- the sample data should produce at least one candidate incident for `portfolio-api`.
+- the sample dataset should produce candidate incidents for all 6 services.
 
-A quick health check after each worker run is to query the relevant tables:
+A quick health check after each worker run:
 
 ```powershell
 docker exec -it resilience_postgres psql -U resilience -d resilience -c "SELECT id, source_system, source_type, ingest_status FROM raw_events ORDER BY created_at DESC;"
@@ -479,13 +672,12 @@ docker exec -it resilience_postgres psql -U resilience -d resilience -c "SELECT 
 docker exec -it resilience_postgres psql -U resilience -d resilience -c "SELECT incident_id, status, service_name, confidence_score, rule_hits FROM candidate_incidents ORDER BY created_at DESC;"
 ```
 
-These mirror the demo queries in the ReadMe and give immediate confirmation that each stage completed before moving on.
-
 ### Optional continuous loop mode
 
-The normalizer and correlator support continuous polling for new work. To enable loop mode, set these environment variables before running the scripts:
+The normalizer and correlator support continuous polling for new work.
 
 **Normalizer loop mode:**
+
 ```
 NORMALIZER_LOOP=true
 NORMALIZER_POLL_SECONDS=5
@@ -493,17 +685,16 @@ NORMALIZER_MAX_CYCLES=0
 ```
 
 **Correlator loop mode:**
+
 ```
 CORRELATOR_LOOP=true
 CORRELATOR_POLL_SECONDS=5
 CORRELATOR_MAX_CYCLES=0
 ```
 
-With `MAX_CYCLES=0`, the worker will loop indefinitely. Set a positive integer to limit the number of cycles. These settings allow the workers to continuously monitor for new events and correlations rather than running a single pass.
+With `MAX_CYCLES=0`, the worker loops indefinitely. Set a positive integer to limit cycles.
 
-If you enable loop mode, keep an eye on terminal output; each cycle prints the number of processed rows so you can stop the worker once new data dries up.
-
-## 13. Review and enrich incidents
+## 15. Review, enrich, and manage incidents
 
 Useful URLs:
 
@@ -512,33 +703,61 @@ Useful URLs:
 - control API docs: `http://localhost:8002/docs`
 - review UI: `http://localhost:8002/ui`
 
-From the UI you can:
+### From the UI
 
-- inspect incident details,
-- view business context,
-- trigger AI enrichment,
-- record review actions,
-- update incident status.
+For each incident, the UI provides:
 
-You can also trigger enrichment directly.
+- incident detail and business context,
+- threshold flags (critical service, unauthorized access, vendor dependency, platform instability, multi-signal),
+- AI enrichment trigger and enrichment output display,
+- review action form (approve / escalate / dismiss) and review action history,
+- status transition controls,
+- incident pack generation and display,
+- report draft generation and display with AI disclaimer banner,
+- remediation action creation form, action list with status-coloured cards, and update controls,
+- full audit log timeline with icon-coded event types.
 
-Call the intelligence service:
+### Trigger enrichment
 
-```powershell
-curl.exe -X POST "http://localhost:8001/incidents/<incident_id>/enrich" -H "accept: application/json"
-```
-
-Or use the control API proxy:
+Via the control API proxy (recommended — also auto-triggers pack assembly):
 
 ```powershell
 curl.exe -X POST "http://localhost:8002/incidents/<incident_id>/enrich" -H "accept: application/json"
 ```
 
-## 14. Verification queries
+Or directly to the intelligence service:
 
-Use these PostgreSQL commands to inspect each stage of the pipeline.
+```powershell
+curl.exe -X POST "http://localhost:8001/incidents/<incident_id>/enrich" -H "accept: application/json"
+```
 
-Tip: keep these queries handy during a demo so you can pivot quickly between raw events, canonical events, and incidents when someone asks "where do you see that in the data?"
+### Generate and retrieve an incident pack
+
+```powershell
+curl.exe -X POST "http://localhost:8002/incidents/<incident_id>/pack" -H "accept: application/json"
+curl.exe -X GET "http://localhost:8002/incidents/<incident_id>/pack" -H "accept: application/json"
+```
+
+### Generate and retrieve a report draft
+
+```powershell
+curl.exe -X POST "http://localhost:8002/incidents/<incident_id>/reporting/draft" -H "accept: application/json"
+curl.exe -X GET "http://localhost:8002/incidents/<incident_id>/reporting/draft" -H "accept: application/json"
+```
+
+### Create a remediation action
+
+```powershell
+curl.exe -X POST "http://localhost:8002/incidents/<incident_id>/remediation" -H "Content-Type: application/json" -d "{\"title\": \"Rotate trade-admin credentials\", \"description\": \"Immediately rotate all credentials for trade-admin account\", \"owner\": \"security-team\", \"due_date\": \"2026-04-24\"}"
+```
+
+### View audit trail
+
+```powershell
+curl.exe -X GET "http://localhost:8002/incidents/<incident_id>/audit" -H "accept: application/json"
+```
+
+## 16. Verification queries
 
 ### Raw events
 
@@ -570,217 +789,133 @@ docker exec -it resilience_postgres psql -U resilience -d resilience -c "SELECT 
 docker exec -it resilience_postgres psql -U resilience -d resilience -c "SELECT request_id, schema_valid, latency_ms, created_at FROM ai_enrichment_responses ORDER BY created_at DESC;"
 ```
 
-## 15. Recommended demo sequence
+### Remediation actions
+
+```powershell
+docker exec -it resilience_postgres psql -U resilience -d resilience -c "SELECT id, incident_id, title, owner, status, due_date FROM remediation_actions ORDER BY created_at DESC;"
+```
+
+### Audit log
+
+```powershell
+docker exec -it resilience_postgres psql -U resilience -d resilience -c "SELECT entity_id, action_type, actor, occurred_at FROM audit_log ORDER BY occurred_at DESC LIMIT 30;"
+```
+
+## 17. Recommended demo sequence
 
 A clean demo sequence is:
 
-1. start infrastructure,
-2. start the three APIs,
-3. ingest the sample files or run the UI helper buttons (`Reset & seed`, `Reset, seed & enrich`),
-4. run the normalizer,
-5. run the correlator,
-6. open the review UI,
-7. trigger AI enrichment for a created incident (either through the UI button or `curl`),
-8. show the database records for each stage.
+1. Start infrastructure.
+2. Start the three APIs (ingest, intelligence, control).
+3. Run `python scripts/seed_sample_data.py` or use the UI `Reset & seed` button.
+4. Run `python scripts/run_normalizer.py`.
+5. Run `python scripts/run_correlator.py`.
+6. Open the review UI at `http://localhost:8002/ui`.
+7. Show the incident list — multiple incidents from different services.
+8. Open a high-severity incident and trigger AI enrichment.
+9. Show the enrichment output, then generate an incident pack.
+10. Walk through a review action and status transition.
+11. Generate a report draft; show the AI disclaimer banner.
+12. Create a remediation action; show the audit log timeline.
+13. Show the PostgreSQL tables to demonstrate authoritative state.
 
-A concise narrative for the demo is:
-
-- multi-source signals are ingested,
-- the platform normalizes them into a canonical model,
-- deterministic rules create a candidate incident,
-- the intelligence layer is invoked after that point,
-- PostgreSQL remains authoritative,
-- AI assists the operator but does not decide.
-
-## 16. Normalization design patterns
-
-This prototype uses a simplified approach where source-to-canonical mapping is hardcoded in the normalizer. In a production system, normalization should follow a three-layer architecture to remain scalable:
-
-### Layer 1: Source adapters
-
-Each adapter knows how to parse one family of inputs:
-
-- QRadar
-- Microsoft Sentinel
-- PAM/IAM logs
-- Prometheus/Grafana alerts
-- cloud audit logs
-- vendor status feeds
-- ServiceNow/Jira webhooks
-
-### Layer 2: Canonical event taxonomy
-
-Every parsed event is mapped into a stable internal vocabulary. Rather than creating hundreds of vendor-specific classifications, use a standard set like:
-
-- `authentication.failure`
-- `privileged_access.failure_burst`
-- `service.availability.degraded`
-- `dependency.vendor.outage`
-- `backup.job.failed`
-- `endpoint.data_exfiltration_suspected`
-
-This internal taxonomy should be small and stable across operational domain changes.
-
-### Layer 3: Correlation rules
-
-Correlation rules operate on the canonical taxonomy, not on raw vendor payloads. Rules match patterns in the standardized event vocabulary and create incident candidates.
-
-The advantage of this separation is that vendor payload changes do not cascade into correlation logic. You adjust adapters, not rules.
-
-### Standards and references
-
-Consider adopting standards such as:
-
-- **Elastic Common Schema (ECS)**: defines common names and categories for security events across tools (event.kind, event.category, event.type, event.outcome),
-- **OpenTelemetry semantic conventions**: defines common names for telemetry attributes across logs, traces, and metrics.
-
-These standards reduce the operational overhead of maintaining a custom taxonomy.
-
-## 17. Demo scenarios and talking points
-
-The `ReadMe.txt` file includes an expanded incident catalog and runbook narrative. The highlights below consolidate those talking points alongside the concrete operator actions needed for each scenario.
-
-The system is designed to be presented as a controlled demonstration of how deterministic correlation and bounded AI assistance support operational resilience.
+## 18. Demo scenarios and talking points
 
 ### Core message
 
-"The platform produces candidate incidents, not automatic final incidents. Deterministic rules create the control object. AI is invoked after correlation, not before. The AI output is advisory and bounded. The authoritative state remains in PostgreSQL. The architecture supports operational resilience, auditability, and replay."
+"The platform produces candidate incidents, not automatic final incidents. Deterministic rules create the control object. AI is invoked after correlation, not before. The AI output is advisory and bounded. The authoritative state remains in PostgreSQL. The architecture supports operational resilience, auditability, and regulatory readiness."
 
 ### Scenario A: Privileged access anomaly on a critical service
 
 **Service**: `portfolio-api`
 
-**Signals**:
-- failed privileged access attempt
-- repeated failed privileged access attempts
-- critical service context (portfolio-api is marked as critical)
+**Signals**: failed privileged access, repeated failed privileged access, critical service context.
 
-**Expected rule hits**: `PRIV_ACCESS_CRITICAL_SERVICE`
+**Expected rule hits**: `PRIV_ACCESS_CRITICAL_SERVICE`, `RISK_CONTEXT_AMPLIFIED_CYBER`
 
-**What to say**: "This is the simplest but important case: the platform identifies a privileged-access anomaly affecting a critical service. The point is not just detecting a login problem; it is recognizing that this affects a business-critical service and should enter an incident workflow."
-
-**How to demo**:
-- use the UI `Reset & seed` flow or re-run `python scripts/seed_sample_data.py`
-- run `python scripts/run_normalizer.py`
-- run `python scripts/run_correlator.py`
-- open the incident detail for `portfolio-api` and trigger enrichment
-
-**After triggering enrichment, highlight**:
-- short incident summary
-- plausible hypotheses
-- explicit uncertainty
-- review memo
-
-**Key message**: "AI is helping package the case, not deciding whether it is reportable."
+**What to say**: "This is the foundational case: the platform identifies a privileged-access anomaly affecting a business-critical service. The point is not just detecting a login problem; it is recognizing that this affects a critical service and should enter an incident workflow with context."
 
 ### Scenario B: Vendor degradation affecting service availability
 
 **Service**: `client-reporting`
 
-**Signals**:
-- vendor degradation or outage
-- synthetic failure on the service
-- service error rate or latency degradation
+**Signals**: vendor outage, synthetic failure, service error rate.
 
-**Expected rule hits**: `VENDOR_DEGRADATION_WITH_SERVICE_ERRORS` (and possibly additional service degradation rules)
+**Expected rule hits**: `VENDOR_OUTAGE_WITH_SYNTHETIC_FAILURE`, `STORAGE_CAPACITY_AND_BACKUP_FAILURE`
 
-**How to demo**:
-- follow the same reset/seed + worker steps
-- open the `client-reporting` incident with multiple rule hits
-- emphasize that the incident aggregates vendor, telemetry, and application signals
+**What to say**: "No single alert is enough. A vendor issue alone may be noise; a synthetic failure alone may be local; an application error rate alone may be ambiguous. Together they form a credible candidate incident."
 
-**What to say**: "This is more realistic operationally. No single alert is enough. A vendor issue alone may be noise; a synthetic failure alone may be local; an application error rate alone may be ambiguous. Together they form a credible candidate incident."
+**What to highlight**: multi-source fusion; vendor relationship visible in incident detail; richer context than a single-alert system.
 
-**What to highlight**:
-- multi-source fusion from different operational domains
-- service-level context is visible in the incident
-- vendor relationship is visible in the incident details
-- richer rule hits than a single alert-based system would produce
+### Scenario C: Data exfiltration with impossible travel (trade-booking)
 
-**Key message**: "The platform is useful because it identifies combinations of weak evidence."
+**Service**: `trade-booking`
 
-### Scenario C: Cyber plus operational degradation
+**Signals**: data exfiltration alert on trade-db-01, impossible travel for trade-admin (Luxembourg → Singapore, 18 minutes apart), break-glass account used, trade-execution-gateway outage, service error rate spike.
 
-**Service**: `client-reporting`
+**Expected rule hits**: `EXFILTRATION_WITH_IDENTITY_ANOMALY`, `PRIVILEGED_ACCESS_WITH_IMPOSSIBLE_TRAVEL`, `VENDOR_OUTAGE_WITH_SERVICE_ERRORS`
 
-**Signals**:
-- suspicious identity signal or data exfiltration event
-- operational degradation on the same service
-- both signals target or affect the same service context
+**What to say**: "This is the most critical scenario. The vendor outage is real but it is also creating a monitoring gap. During that gap, trade-admin is logging in from two continents simultaneously and a large outbound transfer is detected. The platform correlates all three signals rather than treating the security events as noise during an operational incident."
 
-**Expected rule hits**: compound rule matching cyber + operational signals on the same service
+**What to highlight**: `PRIVILEGED_ACCESS_WITH_IMPOSSIBLE_TRAVEL` is a new rule with 0.87 confidence — the travel signal proves the account is being used from geographically incompatible locations; MiFID II clock starts on classification.
 
-**How to demo**:
-- reuse the seeded dataset; the expanded sample set now includes identity anomalies
-- from the UI, open the `client-reporting` incident that shows both cyber and operational rule hits
-- highlight the rule_hits list to illustrate compound detection
+### Scenario D: Admin session anomaly on compliance-api
 
-**What to say**: "This is where the architecture becomes more valuable. The platform can recognize that a cyber signal and a service degradation signal are not independent. It creates a single candidate incident that is more meaningful than two disconnected alerts."
+**Service**: `compliance-api`
 
-**What to highlight**:
-- multiple rule hits on one incident
-- same-service correlation ensures related signals are grouped
-- improved incident packaging for review teams
+**Signals**: repeated failed privileged access (compliance-admin, 9 failures in 4 minutes), suspicious admin session (QRadar), external-data-feed vendor degradation, regulatory feed timeout telemetry.
 
-**Key message**: "The value is not just detection speed; it is better incident framing."
+**Expected rule hits**: `PRIV_ACCESS_CRITICAL_SERVICE`, `VENDOR_OUTAGE_WITH_SERVICE_ERRORS`, `RISK_CONTEXT_AMPLIFIED_OPERATIONAL`
 
-### Scenario D: Batch/platform instability
+**What to say**: "The compliance team was focused on the vendor degradation. The repeated failed login attempts on the same asset within the same window were investigated separately by the SOC. This platform creates a single candidate that surfaces both. Prior incidents in the reference data show this exact missed correlation pattern happening before."
+
+### Scenario E: Batch and platform instability
 
 **Service**: `nav-batch`
 
-**Signals**:
-- restart storm or platform instability signal
-- queue backlog
-- batch delay or batch job failure
+**Signals**: restart storm, queue backlog, batch job failure.
 
-**Expected rule hits**: `PLATFORM_INSTABILITY_RESTART_STORM` and `BATCH_DEGRADATION_QUEUE_BACKLOG`
+**Expected rule hits**: `BATCH_PROCESSING_DEGRADATION`, `PLATFORM_INSTABILITY_CRITICAL_WORKLOAD`
 
-**How to demo**:
-- after the standard ingest/worker steps, filter for `nav-batch` in the UI
-- point out that the incident mixes platform telemetry with batch metrics
-- emphasize that this is a non-cyber reliability scenario
+**What to say**: "This is non-cyber. The platform is cross-domain: operational reliability incidents get the same workflow treatment as security incidents. NAV calculation failure carries a regulatory notification obligation, so the same review and documentation flow applies."
 
-**What to say**: "This shows the platform is not limited to security-style incidents. It can also correlate platform instability and workload degradation in a non-interactive service."
+### Scenario F: Malware on production host
 
-**What to highlight**:
-- another service type (batch vs. API)
-- non-cyber operational case (platform reliability vs. security)
-- multiple signals tied to service context
+**Service**: `portfolio-api`
 
-**Key message**: "The design is cross-domain, not SIEM-centric."
+**Signals**: malware detected on srv-ops-18 (QRadar QR-9400, severity 9).
+
+**Expected rule hits**: `MALWARE_ON_CRITICAL_SERVICE`
+
+**What to say**: "This is the only single-signal rule in the set. Malware on a critical service host is severe enough that we do not need corroborating signals to justify creating a candidate incident. The rule fires on confidence 0.88 from a single QRadar alert."
 
 ### Recommended presentation order
 
-Present incidents in this order for maximum impact:
-
-1. Reset and seed the database (show a fresh run)
-2. Show raw events (highlight multi-source ingestion)
-3. Show canonical events (explain normalization)
-4. Show three candidate incidents from the sample data
-5. Open Scenario A (portfolio-api) and trigger enrichment
-6. Show the AI enrichment output
-7. Open Scenario B (client-reporting) and show multi-rule incident
-8. Open Scenario D (nav-batch) and show non-cyber operational incident
-
-This progression demonstrates:
-- simple case → compound operational/vendor case → richer cross-domain case
-- signal fusion → normalization → correlation → enrichment
-- deterministic control throughout
+1. Reset and seed the database — show a fresh run.
+2. Show raw events from multiple source types.
+3. Show canonical events — explain the normalization mapping.
+4. Show the incident list — 6 services, multiple rules, different severities.
+5. Open Scenario F (malware, portfolio-api) — single-signal critical rule.
+6. Open Scenario C (trade-booking) — compound cyber + vendor incident; trigger enrichment, generate pack, generate report draft.
+7. Open Scenario D (compliance-api) — missed-correlation pattern from prior incidents.
+8. Open Scenario E (nav-batch) — non-cyber operational case.
+9. Show the audit log timeline for any incident — demonstrate full traceability.
+10. Show the PostgreSQL tables — authoritative state, AI is not the record.
 
 ### Best demo closing line
 
-"This prototype is not trying to automate incident authority. It is showing how to combine deterministic control, structured evidence, and bounded AI assistance into a resilience-oriented operating model."
+"This prototype is not trying to automate incident authority. It is showing how to combine deterministic control, structured evidence, and bounded AI assistance into a resilience-oriented operating model that a regulated firm can actually stand behind."
 
-## 18. Troubleshooting
+## 19. Troubleshooting
 
 ### No incidents appear in the UI
 
 Check that:
 
-- sample files were ingested successfully,
-- `python scripts/run_normalizer.py` completed successfully,
-- `python scripts/run_correlator.py` completed successfully,
-- rows exist in `candidate_incidents`.
+- sample files were ingested successfully (`raw_events` has rows),
+- `python scripts/run_normalizer.py` completed successfully (`canonical_events` has rows),
+- `python scripts/run_correlator.py` completed successfully (`candidate_incidents` has rows),
+- risk context files were ingested before the correlator ran (the `MALWARE_ON_CRITICAL_SERVICE` and `PRIV_ACCESS_CRITICAL_SERVICE` rules require `critical_service = true` in service context, which is populated from risk_context payloads).
 
 ### Intelligence service fails to enrich
 
@@ -790,8 +925,16 @@ Check that:
 - the local server is enabled,
 - the configured model is loaded,
 - `LLM_MODEL` matches the model identifier exposed by LM Studio,
-- the route matches the request style being used,
-- if you started the intelligence service manually, `LLM_CHAT_PATH` is set appropriately.
+- `LLM_CHAT_PATH` is set to `/v1/chat/completions`.
+
+The service returns a deterministic fallback when LM Studio is unavailable, so the demo can continue through pack assembly, report draft, and remediation even without a working LLM.
+
+### Incident pack or report draft not appearing in UI
+
+Check that:
+
+- the `artifacts` and `reports` MinIO buckets exist (run `python scripts/setup_minio.py` if needed),
+- enrichment completed before the pack was requested (the pack is auto-assembled after enrichment; manual assembly via the Pack button also works).
 
 ### MinIO errors during ingest
 
@@ -800,14 +943,13 @@ Check that:
 - Docker containers are running,
 - `scripts/setup_minio.py` completed successfully,
 - MinIO is reachable at `http://localhost:9000`,
-- the `raw-events` bucket exists.
+- expected buckets exist: `raw-events`, `artifacts`, `prompts`, `reports`.
 
-To verify MinIO manually:
+MinIO console: `http://localhost:9001` — credentials: `minio` / `minio12345`.
 
-- **MinIO API**: open `http://localhost:9000`
-- **MinIO Console**: open `http://localhost:9001`
-- **Credentials**: user: `minio`, password: `minio12345`
-- **Expected buckets**: `raw-events`, `artifacts`, `prompts`, `reports`
+### Normalizer skips events
+
+If the normalizer prints `skipping raw event ... (source_type=unknown)`, an event was ingested with an unrecognised source type. This typically means a Jira or ServiceNow file was uploaded via `/ingest/file` instead of the dedicated adapter endpoints. Re-run `python scripts/seed_sample_data.py` — it routes jira/servicenow files to the correct endpoints automatically.
 
 ### Database schema problems
 
@@ -817,33 +959,39 @@ If the schema is missing or stale, rebuild the environment:
 .\scripts\bootstrap.ps1 -RebuildDb
 ```
 
-## 19. Repository map
+## 20. Repository map
 
-Useful locations:
+| Path | Contents |
+|---|---|
+| `app/common/` | config, DB engine, repository helpers, schemas, MinIO client, LLM helpers |
+| `app/ingest_api/` | ingest API with file upload and adapter endpoints |
+| `app/normalizer_worker/` | raw-to-canonical normalization with per-event error handling |
+| `app/correlator_worker/` | rule-based correlation, threshold flag computation, audit emission |
+| `app/intelligence_service/` | AI enrichment service with prompt assembly and fallback |
+| `app/control_api/main.py` | control API, review workflow, status transitions, UI |
+| `app/control_api/incident_pack.py` | incident pack assembler (MinIO artifact) |
+| `app/control_api/reporting.py` | report draft assembler (MinIO artifact) with disclaimers |
+| `db/init.sql` | PostgreSQL schema, indexes, triggers, seed data |
+| `rules/correlation_rules.yaml` | 14 correlation rules |
+| `reference/` | 4 reference files covering 6 services (prompt retrieval context) |
+| `sample_data/` | 50 demo payloads across 7 source types |
+| `scripts/seed_sample_data.py` | seeds all sample data, routing jira/servicenow to adapters |
+| `scripts/run_normalizer.py` | normalizer entry point |
+| `scripts/run_correlator.py` | correlator entry point |
+| `scripts/bootstrap.ps1` | full environment bootstrap |
+| `.run/` | committed PyCharm run configurations for the three APIs |
 
-- `app/common/` - shared config, DB, repository, schemas, MinIO, and LM Studio helpers
-- `app/ingest_api/` - ingest API
-- `app/normalizer_worker/` - raw-to-canonical normalization logic
-- `app/correlator_worker/` - rule-based correlation logic
-- `app/intelligence_service/` - AI enrichment service
-- `app/control_api/` - control API and review UI
-- `db/init.sql` - PostgreSQL schema, indexes, triggers, and seed data
-- `rules/correlation_rules.yaml` - correlation rules
-- `reference/` - prompt reference material
-- `sample_data/` - demo payloads
-- `scripts/` - bootstrap, setup, seeding, and worker entry points
-- `.run/` - committed PyCharm run configurations for the three APIs
-
-## 20. Current limits and future direction
+## 21. Current limits and future direction
 
 This repository is intentionally minimal. It is optimized for local inspection and demo flow rather than production hardening.
 
 Notable current limits:
 
-- no scheduler or queue for the workers,
-- limited UI functionality,
-- local-file reference retrieval rather than a retrieval service,
-- minimal validation around source-specific payloads,
-- mixed LM Studio configuration paths that should be standardized later.
+- no time-window awareness in the correlator — events are grouped from the current unprocessed batch only, not across a sliding time window (Rec 6.6 from the gap analysis, not yet implemented),
+- no scheduler or queue for the workers; loop mode is available but not supervised,
+- local-file reference retrieval rather than a vector retrieval service,
+- Jira and ServiceNow payloads submitted via `/ingest/file` will be skipped by the normalizer (they must use the dedicated adapter endpoints),
+- mixed LM Studio configuration paths that should be standardized,
+- no prompt masking or PII scrubbing before LLM submission.
 
-Even with those constraints, the repository already demonstrates the core resilience workflow: ingest, normalize, correlate, enrich, and review.
+Even with those constraints, the repository demonstrates the complete resilience workflow: ingest evidence, normalize, correlate deterministically, enrich with bounded AI, review with human authority, track remediation, assemble incident packs, draft regulatory reports, and maintain a full audit trail.
